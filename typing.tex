@@ -35,28 +35,25 @@ $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\).
 We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ as follows.
 \begin{mathpar}
 \inferrule{
-    s_3 = s_1 \lub s_2 \\ \pctx_3 = \pctx_1' \lub \pctx_2' 
+    s_3 = s_1 \lub s_2 \\ \pctx_3 = \pctx_1' \lub \pctx_2' \\ \m{dom}(\pctx_1') = \m{dom}(\pctx_2') 
 }
 {  p \rightarrow (S,s_1), \pctx_1' \lub p \rightarrow (S,s_2), \pctx_2' = p \rightarrow (S, s_3), \pctx_3 }
 \end{mathpar}
-\milijana{this needs base cases, or an assumption that the domain of the two contexts are the same.}
 where the $s_1 \lub s_2$ is a standard notion of a lattice join, that is, 
 \(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements.
 
 
-\milijana{check that the above rule matches what you meant by the statement below}
-\(\pctx' \sqcap \pctx'' = \pctx^{\ast} \rightarrow \forall p \in \pctx',\pctx'',\pctx^{\ast (p)} = \pctx'(p) \sqcap \pctx''(p)\)\\
+\(\pctx' \lub \pctx'' = \pctx^{\ast} \rightarrow \forall p \in \pctx',\pctx'',\pctx^{\ast}(p) = \pctx'(p) \lub \pctx''(p)\)\\
 In words, the join of two peripheral contexts is a new context whose
 elements are the join of the current state of each peripheral in the
-context.
-\milijana{I suspect you want least-upper-bound and union as your notion of join, not intersection. }
-
+context, and $\m{dom}(\pctx') = \m{dom}(\pctx'')$. \\ 
+\sai{I added the assumption that the domains of the two contexts are equal. However, I wonder if one could define the join of two contexts that do not have equal domains by extending the domains to include peripherals that are in one and not in the other, but set to the Off state. For example, say $\pctx = \{\text{Temp: On, I2C: Rx, Radio: Tx}\}$ and \\ $\pctx' = \{\text{Temp: On, I2C: Rx, Humidity: On}\}$. Then we can extend $\pctx$ to $\pctx_e =  \{\text{Temp: On, I2C: Rx, Radio: Tx, Humidity: Off}\}$ and $\pctx'$ to \\ $\pctx'_e = \{\text{Temp: On, I2C: Rx, Humidity: On, Radio: Off}\}$ and then set $\pctx^* = \pctx_e \lub \pctx'_e = \{\text{Temp: On, I2C: Rx, Radio: Tx, Humidity: On\}}$.} \\ \\ 
 Our judgment are of the form 
-$\tctx,\pctx, \vdash e:\tau \Costarrow{C} \pctx'$
+$\tctx,\pctx, s_{\max} \vdash e:\tau \Costarrow{C} \pctx', s'_{\max}$
 
-\milijana{reached up to here}
-
+\milijana{reached up to here} \\
+For now, we will assume that we only have one peripheral.
 \begin{mathpar}
 \inferrule*[right=T-Seq]
 {
@@ -82,14 +79,15 @@ $\tctx,\pctx, \vdash e:\tau \Costarrow{C} \pctx'$
 
 \inferrule*[right=T-Branch]
 {
-  \tctx, \pctx \vdash e : \text{bool} \xrightarrow{C'} \pctx \\
-  \tctx, \pctx \vdash e_1 : \tau \xrightarrow{C_1} \pctx_1 \\
-  \tctx, \pctx \vdash e_2 : \tau \xrightarrow{C_2} \pctx_2 \\
+  \tctx, \pctx, s_{\max} \vdash e : \text{bool} \xrightarrow{C'} \pctx, s_{\max} \\
+  \tctx, \pctx, s_{\max} \vdash e_1 : \tau \xrightarrow{C_1} \pctx_1, s^1_{\max} \\
+  \tctx, \pctx, s_{\max} \vdash e_2 : \tau \xrightarrow{C_2} \pctx_2, s^2_{\max}\\
   C = C' + \max(C_1, C_2) \\
-  \pctx' = \pctx_1 \sqcap \pctx_2
+  \pctx' = \pctx_1 \sqcup \pctx_2 \\
+  s'_{\max} = s^1_{\max} \lub s^2_{\max}
 }
 {
-  \tctx, \pctx \vdash \text{if } e \text{ then } e_1 \text{ else } e_2 : \tau \xrightarrow{C} \pctx'
+  \tctx, \pctx, s_{\max} \vdash \text{if } e \text{ then } e_1 \text{ else } e_2 : \tau \xrightarrow{C} \pctx', s'_{\max}
 }
 
 \inferrule*[right=T-Transition]
@@ -97,10 +95,10 @@ $\tctx,\pctx, \vdash e:\tau \Costarrow{C} \pctx'$
   \tctx, \pctx \vdash x : \rho \\
   \pctx(x) = s_i \\
   s_i \le s \\
-  C_t = \mathrm{cost}(s_i, s)
+  C_t = \mathrm{cost}(s_i, s) \\ s'_{\max} = s_{\max} \lub s
 }
 {
-  \tctx, \pctx \vdash \text{transition}(x, s) : \tau \xrightarrow{C_t} \pctx[x : s]
+  \tctx, \pctx, s_{\max} \vdash \text{transition}(x, s) : \tau \xrightarrow{C_t} \pctx[x : s], s'_{\max}
 }
 
 \end{mathpar}
