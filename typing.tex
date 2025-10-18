@@ -1,0 +1,106 @@
+\section{Language and Typing}
+
+We present a simple imperative language. 
+\[
+\begin{array}{lcll}
+e & \bnfdef & x & \text{(variable)} \\
+  & \bnfalt & \text{let } x = e_1 \text{ in } e_2 & \text{(let)} \\
+  & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
+  & \bnfalt & e_1\ e_2 & \text{(application)} \\
+  & \bnfalt & \lambda x.\,e & \text{(function abstraction)} \\
+  & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } e & \text{(share)} \\
+  & \bnfalt & \text{atomic}(e) & \text{(atomic)} \\
+  & \bnfalt & e_1;\ e_2 & \text{(seq)} \\
+  & \bnfalt & \text{if } e \text{ then } e_1 \text{ else } e_2 & \text{(branch)}
+\end{array}
+\]
+
+Our judgments use the following additional contexts. 
+\[
+\begin{array}{llcl}
+\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau \bnfalt f \rightarrow ( \tau_{1} \rightarrow \tau_{2}) \bnfalt \cdot
+\\ 
+\textit{Types} & \tau & \bnfdef & b \bnfalt \tau_1 \rightarrow \tau_2 \bnfalt \rho 
+\\
+\textit{State Lattice} & S & \bnfdef & (\langle s_{0},s_{1},\ldots,s_{n}\rangle, <)
+\\
+\textit{Peripheral State Context} & \pctx & \bnfdef &  p \rightarrow (S,s_{\mt{curr}}) \bnfalt \cdot
+\end{array}
+\]
+
+We also assume the existence of the cost functions 
+$\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when
+\(s_{i} \leq s_{j}\) and 
+$\m{cost}(s_{i})$ = cost of being in state \(s_{i}\).
+We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ as follows.
+\begin{mathpar}
+\inferrule{
+    s_3 = s_1 \lub s_2 \\ \pctx_3 = \pctx_1' \lub \pctx_2' 
+}
+{  p \rightarrow (S,s_1), \pctx_1' \lub p \rightarrow (S,s_2), \pctx_2' = p \rightarrow (S, s_3), \pctx_3 }
+\end{mathpar}
+\milijana{this needs base cases, or an assumtion that the domain of the two contexts are the same.}
+where the $s_1 \lub s_2$ is a standard notion of a lattice join, that is, 
+\(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
+the least upper bound of all the elements.
+
+
+\milijana{check that the above rule matches what you meant by the statement below}
+\(\pctx' \sqcap \pctx'' = \pctx^{\ast} \rightarrow \forall p \in \pctx',\pctx'',\pctx^{\ast (p)} = \pctx'(p) \sqcap \pctx''(p)\)\\
+In words, the join of two peripheral contexts is a new context whose
+elements are the join of the current state of each peripheral in the
+context.
+\milijana{I suspect you want least-upper-bound and union as your notion of join, not intersection. }
+
+Our judgment are of the form 
+$\tctx,\pctx, \vdash e:\tau \Costarrow{C} \pctx'$
+
+\milijana{reached up to here}
+
+\begin{mathpar}
+\inferrule*[right=T-Seq]
+{
+  \tctx, \pctx, s_{\max} \vdash e_1 : \tau_1 \xrightarrow{C_1} \pctx', s'_{\max} \\
+  C_{1\text{-max}} = \mathrm{cost}(s_{\max}) \\
+  \tctx, \pctx', s'_{\max} \vdash e_2 : \tau_2 \xrightarrow{C_2} \pctx'', s''_{\max} \\
+  C_{2\text{-max}} = \mathrm{cost}(s'_{\max}) \\
+  C = C_1 + C_2 + C_{1\text{-max}} + C_{2\text{-max}}
+}
+{
+  \tctx, \pctx, s_{\max} \vdash e_1; e_2 : \tau_2 \xrightarrow{C} \pctx'', s''_{\max}
+}
+
+\inferrule*[right=T-Atomic]
+{
+  \tctx, \pctx, s_{\max} \vdash e : \tau \xrightarrow{C_1} \pctx', s'_{\max} \\
+  C_{\max} = \mathrm{cost}(s'_{\max}) \\
+  C = C_1 + C_{\max}
+}
+{
+  \tctx, \pctx, s_{\max} \vdash \text{atomic}(e) : \tau \xrightarrow{C} \pctx', s'_{\max}
+}
+
+\inferrule*[right=T-Branch]
+{
+  \tctx, \pctx \vdash e : \text{bool} \xrightarrow{C'} \pctx \\
+  \tctx, \pctx \vdash e_1 : \tau \xrightarrow{C_1} \pctx_1 \\
+  \tctx, \pctx \vdash e_2 : \tau \xrightarrow{C_2} \pctx_2 \\
+  C = C' + \max(C_1, C_2) \\
+  \pctx' = \pctx_1 \sqcap \pctx_2
+}
+{
+  \tctx, \pctx \vdash \text{if } e \text{ then } e_1 \text{ else } e_2 : \tau \xrightarrow{C} \pctx'
+}
+
+\inferrule*[right=T-Transition]
+{
+  \tctx, \pctx \vdash x : \rho \\
+  \pctx(x) = s_i \\
+  s_i \le s \\
+  C_t = \mathrm{cost}(s_i, s)
+}
+{
+  \tctx, \pctx \vdash \text{transition}(x, s) : \tau \xrightarrow{C_t} \pctx[x : s]
+}
+
+\end{mathpar}

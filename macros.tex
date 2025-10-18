@@ -1,0 +1,118 @@
+%% abbrevs
+\newcommand{\system}{sys-name\xspace}
+
+%% comments
+% turn off comments by uncommenting the following command and
+% commenting out the second notes command
+%\newcommand{\notes}[2]{} 
+% turn on comments by commenting out the previous note command and
+% uncommenting the following command
+\newcommand{\notes}[2]{{\bf\textsf{\textcolor{#1}{#2}}}} 
+\newcommand{\todo}[1]{\notes{red}{TODO: #1}}
+\newcommand{\milijana}[1]{\notes{magenta}{Milijana says: #1}}
+\newcommand{\sai}[1]{\notes{orange}{Sai says: #1}}
+\newcommand{\reminder}[1]{\notes{purple}{Reminder: #1}}
+\newcommand{\mathcomment}[1]{\notes{purple}{#1}}
+
+%command to show the full definitions (first version) or not (second version)
+%\newcommand{\extra}[1]{#1}
+\newcommand{\extra}[1]{}
+
+%% fonts
+\newcommand\BbbGamma{\reflectbox{\rotatebox[origin=c]{180}{$\mathds L$}}}
+\newcommand\BbbGammaVar{\reflectbox{\rotatebox[origin=c]{180}{$\mathbb L$}}}
+\newcommand{\m}[1]{\mathsf{#1}}
+\newcommand{\mt}[1]{\mathit{#1}}
+\newcommand{\ft}[1]{\textit{#1}}
+\newcommand{\paragraphb}[1]{\vspace{2pt}\noindent{\bf #1}\xspace}
+%% math
+\newcommand{\bnfdef}{::=}
+\newcommand{\bnfalt}{\,|\,}
+\newcommand{\rulename}[1]{\textsc{#1}}
+\newcommand{\ifthen}[3]{\m{if}\ #1\ \m{then}\ #2\ \m{else}\ #3}
+\newcommand{\while}[2]{\m{while}\ #1\ \m{do}\ #2}
+\newcommand{\trans}[2]{\m{transition}(#1, #2)}
+\newcommand{\elet}[3]{\m{let}\ #1 = #2 ~\m{in}\ #3}
+\newcommand{\eletmut}[3]{\m{let~mut}\ #1 = #2 ~\m{in}\ #3}
+
+%% typing 
+\newcommand{\tctx}{\Gamma}
+\newcommand{\pctx}{\Delta}
+\newcommand{\Costarrow}[1]{\stackrel{#1}{\Rightarrow}}
+\newcommand{\tctxdouble}{\BbbGamma}
+\newcommand{\dgamma}{\BbbGamma}
+\newcommand{\lbl}{\mathbb{L}}
+\newcommand{\ilbl}[1]{\scriptsize\textit{#1}}
+\newcommand{\lub}{\sqcup}
+\newcommand{\entails}{\models}
+\newcommand{\ok}{\m{ok}}
+\newcommand{\subtp}{\sqsubseteq_t}
+
+
+%% algo
+
+%algo stuff 
+\usepackage{eqparbox}
+\newdimen{\algindent}
+\setlength\algindent{1.5em} 
+\algnewcommand\LeftComment[2]{%
+\hspace{#1\algindent}$\triangleright$ \eqparbox{COMMENT}{#2} \hfill %
+}
+
+%% fonts
+\newcommand{\alg}[1]{\ensuremath{\mathit{#1}}}
+
+
+%% configurations
+\newcommand{\prog}{\ft{prog}}
+\newcommand{\seg}{\ft{seg}}
+\newcommand{\dom}{\m{dom}}
+\newcommand{\stepsto}{\longrightarrow}
+\newcommand{\Stepsto}[1]{\stackrel{#1}{\Longrightarrow}}
+\newcommand{\SeqStepsto}[1]{\stackrel{#1}{\longrightarrow}}
+\newcommand{\MStepsto}[1]{\stackrel{#1}{\Longrightarrow^*}}
+\newcommand{\MSeqStepsto}[1]{\stackrel{#1}{\longrightarrow^*}}
+\newcommand{\proj}[2]{#1|_{#2}}
+\newcommand{\stepstopc}[1]{\stackrel{#1}{\rightarrow}}
+
+%% proofs
+\newcommand{\ee}{\mathcal{E}}
+\newcommand{\de}{\mathcal{D}}
+
+\newcommand{\denote}[1]{[\![ #1 ]\!]}
+
+\newcommand{\xstep}[1]{\xmapsto{#1}}
+\newcommand{\xsteps}[1]{\xmapsto{#1}^*}
+\newcommand{\step}{\mapsto}
+\newcommand{\steps}{\mapsto^*}
+
+\newcommand{\erase}[1]{{#1}^-}
+
+\newcommand{\entry}[1]{\ft{Entry}(#1)}
+
+\newcommand{\sametraceequiv}{\prec}
+\newcommand{\twotraceequiv}{\approx}
+\newcommand{\modeequiv}[1]{\approx_{#1}}
+\newcommand{\outputequiv}{\approx^\m{out}}
+\newcommand{\inputequiv}{\approx^\m{in}}
+
+
+
+%% theorem environments
+
+%%% proofs
+\newif\ifproofs
+%%%%%% uncomment to not show proofs 
+%%\proofsfalse
+%%%%%% uncomment to show proofs 
+\proofstrue
+
+\newtheorem{thm}{Theorem}
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{cor}[thm]{Corollary}
+
+\newtheorem{defn}[thm]{Definition}
+\newtheorem{assumption}[thm]{Assume}
+\newenvironment{proofsketch}{\vspace{-1pt}\textsc{Proof (sketch). }\hspace*{0.25em}}{ \hspace*{\fill} \qed}
+
+\newcommand{\myparagraph}[1]{\vspace{2pt}\noindent{\bf #1}}
