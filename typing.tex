@@ -18,13 +18,13 @@ e & \bnfdef & x & \text{(variable)} \\
 Our judgments use the following additional contexts. 
 \[
 \begin{array}{llcl}
-\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau \bnfalt f \rightarrow ( \tau_{1} \rightarrow \tau_{2}) \bnfalt \cdot
+\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau, \tctx \bnfalt f \rightarrow ( \tau_{1} \rightarrow \tau_{2}), \tctx \bnfalt \cdot
 \\ 
 \textit{Types} & \tau & \bnfdef & b \bnfalt \tau_1 \rightarrow \tau_2 \bnfalt \rho 
 \\
 \textit{State Lattice} & S & \bnfdef & (\langle s_{0},s_{1},\ldots,s_{n}\rangle, <)
 \\
-\textit{Peripheral State Context} & \pctx & \bnfdef &  p \rightarrow (S,s_{\mt{curr}}) \bnfalt \cdot
+\textit{Peripheral State Context} & \pctx & \bnfdef &  p \rightarrow (S,s_{\mt{curr}}), \pctx \bnfalt \cdot
 \end{array}
 \]
 
