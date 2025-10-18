@@ -1,0 +1,94 @@
+\documentclass{article}
+
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{mathpartir}
+\usepackage{geometry}
+
+\title{Automatic Energy Resource Analysis Typesystem}
+\author{Sai Divvela}
+\date{October 2025}
+
+\begin{document}
+Language:
+\[
+\begin{array}{rcll}
+e & ::= & x & \text{(variable)} \\
+  & \mid & \text{let } x = e_1 \text{ in } e_2 & \text{(let)} \\
+  & \mid & \text{transition}(x, \text{st}) & \text{(transition)} \\
+  & \mid & e_1\ e_2 & \text{(application)} \\
+  & \mid & \lambda x.\,e & \text{(function abstraction)} \\
+  & \mid & \text{share } x \text{ as } x_1, x_2 \text{ in } e & \text{(share)} \\
+  & \mid & \text{atomic}(e) & \text{(atomic)} \\
+  & \mid & e_1;\ e_2 & \text{(seq)} \\
+  & \mid & \text{if } e \text{ then } e_1 \text{ else } e_2 & \text{(branch)}
+\end{array}
+\]
+\\
+
+$(\Gamma:x \rightarrow \tau,f \rightarrow \left( \tau_{1} \rightarrow \tau_{2} \right)$\\
+\(S ::=\) (\(\langle s_{0},s_{1},\ldots,s_{n}\rangle, <\))\\
+cost(\(s_{i},s_{j}\)) = transition cost between \(s_{i},s_{j}\) when
+\(s_{i} \leq s_{j}\)\\
+cost(\(s_{i}\)) = cost of being in state \(s_{i}\)\\
+\(\Delta:p \rightarrow (S,s)\) where \(s\) is the current state of the
+peripheral and \(S\) is the state lattice associated with the
+peripheral.
+
+\(\Gamma,\Delta, \vdash e:\tau\overset{C}{\rightarrow}\Delta'\)\\
+\(\tau ::= b~|~\tau_{1} \rightarrow \tau_{2}~|~\rho\)\\
+\(s_{i} \sqcap s_{j} = s_{j}\) if \(s_{i} < s_{j}\)\\
+\(\Delta' \sqcap \Delta'' = \Delta^{\ast} \rightarrow \forall p \in \Delta',\Delta'',\Delta^{\ast (p)} = \Delta'(p) \sqcap \Delta''(p)\)\\
+In words, the join of two peripheral contexts is a new context whose
+elements are the join of the current state of each peripheral in the
+context.\\
+We also assume that every lattice has a unique \(\top\) element that is
+the least upper bound of all the elements.
+
+\begin{mathpar}
+\inferrule*[right=T-Seq]
+{
+  \Gamma, \Delta, s_{\max} \vdash e_1 : \tau_1 \xrightarrow{C_1} \Delta', s'_{\max} \\
+  C_{1\text{-max}} = \mathrm{cost}(s_{\max}) \\
+  \Gamma, \Delta', s'_{\max} \vdash e_2 : \tau_2 \xrightarrow{C_2} \Delta'', s''_{\max} \\
+  C_{2\text{-max}} = \mathrm{cost}(s'_{\max}) \\
+  C = C_1 + C_2 + C_{1\text{-max}} + C_{2\text{-max}}
+}
+{
+  \Gamma, \Delta, s_{\max} \vdash e_1; e_2 : \tau_2 \xrightarrow{C} \Delta'', s''_{\max}
+}
+
+\inferrule*[right=T-Atomic]
+{
+  \Gamma, \Delta, s_{\max} \vdash e : \tau \xrightarrow{C_1} \Delta', s'_{\max} \\
+  C_{\max} = \mathrm{cost}(s'_{\max}) \\
+  C = C_1 + C_{\max}
+}
+{
+  \Gamma, \Delta, s_{\max} \vdash \text{atomic}(e) : \tau \xrightarrow{C} \Delta', s'_{\max}
+}
+
+\inferrule*[right=T-Branch]
+{
+  \Gamma, \Delta \vdash e : \text{bool} \xrightarrow{C'} \Delta \\
+  \Gamma, \Delta \vdash e_1 : \tau \xrightarrow{C_1} \Delta_1 \\
+  \Gamma, \Delta \vdash e_2 : \tau \xrightarrow{C_2} \Delta_2 \\
+  C = C' + \max(C_1, C_2) \\
+  \Delta' = \Delta_1 \sqcap \Delta_2
+}
+{
+  \Gamma, \Delta \vdash \text{if } e \text{ then } e_1 \text{ else } e_2 : \tau \xrightarrow{C} \Delta'
+}
+
+\inferrule*[right=T-Transition]
+{
+  \Gamma, \Delta \vdash x : \rho \\
+  \Delta(x) = s_i \\
+  s_i \le s \\
+  C_t = \mathrm{cost}(s_i, s)
+}
+{
+  \Gamma, \Delta \vdash \text{transition}(x, s) : \tau \xrightarrow{C_t} \Delta[x : s]
+}
+
+\end{mathpar}
+\end{document}
