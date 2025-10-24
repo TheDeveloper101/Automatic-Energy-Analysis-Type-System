@@ -11,7 +11,8 @@ e & \bnfdef & x & \text{(variable)} \\
   & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } e & \text{(share)} \\
   & \bnfalt & \text{atomic}(e) & \text{(atomic)} \\
   & \bnfalt & e_1;\ e_2 & \text{(seq)} \\
-  & \bnfalt & \text{if } e \text{ then } e_1 \text{ else } e_2 & \text{(branch)}
+  & \bnfalt & \text{if } e \text{ then } e_1 \text{ else } e_2 & \text{(branch)} \\ 
+  & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operations)}
 \end{array}
 \]
 
@@ -58,9 +59,9 @@ For now, we will assume that we only have one peripheral.
 \inferrule*[right=T-Seq]
 {
   \tctx, \pctx, s_{\max} \vdash e_1 : \tau_1 \xrightarrow{C_1} \pctx', s'_{\max} \\
-  C_{1\text{-max}} = \mathrm{cost}(s_{\max}) \\
+  C_{1\text{-max}} = \text{cost}(s_{\max}) \\
   \tctx, \pctx', s'_{\max} \vdash e_2 : \tau_2 \xrightarrow{C_2} \pctx'', s''_{\max} \\
-  C_{2\text{-max}} = \mathrm{cost}(s'_{\max}) \\
+  C_{2\text{-max}} = \text{cost}(s'_{\max}) \\
   C = C_1 + C_2 + C_{1\text{-max}} + C_{2\text{-max}}
 }
 {
@@ -70,7 +71,7 @@ For now, we will assume that we only have one peripheral.
 \inferrule*[right=T-Atomic]
 {
   \tctx, \pctx, s_{\max} \vdash e : \tau \xrightarrow{C_1} \pctx', s'_{\max} \\
-  C_{\max} = \mathrm{cost}(s'_{\max}) \\
+  C_{\max} = \text{cost}(s'_{\max}) \\
   C = C_1 + C_{\max}
 }
 {
@@ -95,10 +96,148 @@ For now, we will assume that we only have one peripheral.
   \tctx, \pctx \vdash x : \rho \\
   \pctx(x) = s_i \\
   s_i \le s \\
-  C_t = \mathrm{cost}(s_i, s) \\ s'_{\max} = s_{\max} \lub s
+  C_t = \text{cost}(s_i, s) \\ s'_{\max} = s_{\max} \lub s
 }
 {
-  \tctx, \pctx, s_{\max} \vdash \text{transition}(x, s) : \tau \xrightarrow{C_t} \pctx[x : s], s'_{\max}
+  \tctx, \pctx, s_{\max} \vdash \text{transition}(x, s) : \text{Unit} \xrightarrow{C_t} \pctx[x : s], s'_{\max}
 }
 
+\inferrule*[right=T-Binop]
+{
+\tctx, \pctx, s_{\max} \vdash e_1 : \text{int} \xrightarrow{C_1} \pctx, s_{\max} \\ \tctx, \pctx, s_{\max} \vdash e_2 : \text{int} \xrightarrow{C_2} \pctx, s_{\max} \\
+C = C_1 + C_2 + C_{bin}
+}
+{
+\tctx, \pctx, s_{\max} \vdash e_1 \text{ binop } e_2 : \text{int} \xrightarrow{C} \pctx, s_{\max}
+}
+
+\inferrule*[right=T-Var]
+{
+  \tctx(x) = \tau
+}
+{
+\tctx,\pctx,s_{\max} \vdash x : \tau \xrightarrow{C_v} \pctx, s_{\max}
+}
+
+\inferrule*[right=T-Comp]
+{
+\tctx, \pctx, s_{\max} \vdash e_1 : \text{int} \xrightarrow{C_1} \pctx, s_{\max} \\ \tctx, \pctx, s_{\max} \vdash e_2 : \text{int} \xrightarrow{C_2} \pctx, s_{\max} \\ C = C_1 + C_2 + C_{\text{cmp}}
+}
+{
+\tctx, \pctx, s_{\max} \vdash e_1\ \text{op}\ e_2 : \text{bool} \xrightarrow{C} \pctx, s_{\max}
+}
+
+\end{mathpar}
+\newpage
+Some example derivations: 
+
+\begin{mathpar}
+\inferrule*[right=T-Trans]
+{
+\tctx(x) = \rho \\ \pctx(x) = s_i \\ s_i \le \text{On} \\ C_t = \text{cost}(s_i,\text{On}) \\ s'_{\max} = s_{\max} \lub \text{On}
+}
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(x,\text{On}) : \text{Unit} \xrightarrow{C_t} \pctx[x:\text{On}],\, s'_{\max}
+}
+\and
+\inferrule*[right=T-Var]
+{
+  \tctx(y) = \text{int}
+}
+{
+\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max}
+}
+\and
+\inferrule*[right=T-Var]
+{
+  \tctx(z) = \text{int}
+}
+{
+\tctx,\pctx[x:\text{On}],s'_{\max} \vdash z : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max}
+}
+\and
+\inferrule*[right=T-Binop]
+{
+\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max} \\ \tctx,\pctx[x:\text{On}],s'_{\max} \vdash z : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max} \\ C_b = C_v + C_v + C_{bin}
+}
+{
+\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y \;+\; z : \text{int} \xrightarrow{C_b} \pctx[x:\text{On}],\, s'_{\max}
+}
+\and
+\inferrule*[right=T-Seq]
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(x,\text{On}) : \text{Unit} \xrightarrow{C_t} \pctx[x:\text{On}],\, s'_{\max} \\  C_{1\text{-max}} = \text{cost}(s_{\max}) \\
+\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y + z : \text{int} \xrightarrow{C_b} \pctx[x:\text{On}],\, s'_{\max} \\ C_{2\text{-max}} = \text{cost}(s'_{\max}) \\ C = C_t + C_b + C_{1\text{-max}} + C_{2\text{-max}}
+}
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(x,\text{On});\; y + z : \text{int} \xrightarrow{C} \pctx[x:\text{On}],\, s'_{\max}
+}
+\end{mathpar}
+\newpage
+\begin{mathpar}
+    
+\inferrule*[right=T-Comp]
+{
+\inferrule*[right=T-Var] { \tctx(x) = \text{int} } { \tctx,\pctx,s_{\max} \vdash x : \text{int} \xrightarrow{C_v} \pctx, s_{\max} } \\ \inferrule*[] { } { \tctx,\pctx,s_{\max} \vdash 1 : \text{int} \xrightarrow{0} \pctx, s_{\max} } \\ C' = C_v + 0 + C_{\text{comp}}
+}
+{
+\tctx,\pctx,s_{\max} \vdash x > 1 : \text{bool} \xrightarrow{C'} \pctx, s_{\max}
+}
+\and
+\inferrule*[right=T-Trans]
+{
+\tctx(p) = \rho \\ \pctx(p) = s_i \\ s_i \le \text{Off} \\ C_{t\text{Off}} = \text{cost} (s_i,\text{Off}) \\ s^1_{\max} = s_{\max} \lub \text{Off}
+}
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off}) : \text{Unit} \xrightarrow{C_{t\text{Off}}} \pctx[p:\text{Off}], s^1_{\max}
+}
+\and
+\inferrule*[right=T-Binop]
+{
+\tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash x : \text{int} \xrightarrow{C_v} \pctx[p:\text{Off}], s^1_{\max} \\ \tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash 1 : \text{int} \xrightarrow{0} \pctx[p:\text{Off}], s^1_{\max} \\ C_{x-1} = C_v + 0 + C_{bin}
+}
+{
+\tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash x - 1 : \text{int} \xrightarrow{C_{x-1}} \pctx[p:\text{Off}], s^1_{\max}
+}
+\and
+\inferrule*[right=T-Seq]
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off}) : \text{Unit} \xrightarrow{C_1} \pctx[p:\text{Off}],\, s^1_{\max} \\ C_1 = C_{t\text{Off}} \\ C_{1\text{-max}} = \text{cost} (s_{\max}) \\ \tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash x - 1 : \text{int} \xrightarrow{C_2} \pctx[p:\text{Off}],\, s^1_{\max} \\ C_2 = C_{x-1} \\ C_{2\text{-max}} = \text{cost}(s^1_{\max}) \\ C_{\text{then}} = C_1 + C_2 + C_{1\text{-max}} + C_{2\text{-max}}
+}
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off});\; x - 1 : \text{int} \xrightarrow{C_{\text{then}}} \pctx[p:\text{Off}],\, s^1_{\max}
+}
+\and
+\inferrule*[right=T-Trans]
+{ 
+\tctx(p) = \rho \\ \pctx(p) = s_i \\ s_i \leq \text{Idle} \\ C_{t\text{Idle}} = \text{cost}(s_i,\text{Idle}) \\ s^2_{\max} = s_{\max} \lub \text{Idle}
+}
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle}) : \text{Unit} \xrightarrow{C_{t\text{Idle}}} \pctx[p:\text{Idle}],\, s^2_{\max}
+}
+\and
+\inferrule*[right=T-Binop]
+{ \tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash x : \text{int} \xrightarrow{C_v} \pctx[p:\text{Idle}], s^2_{\max} \\ \tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash 1 : \text{int} \xrightarrow{0} \pctx[p:\text{Idle}], s^2_{\max} \\
+  C_{x+1} = C_v + 0 + C_{bin}
+}
+{
+\tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash x + 1 : \text{int} \xrightarrow{C_{x+1}} \pctx[p:\text{Idle}], s^2_{\max}
+}
+\and
+\inferrule*[right=T-Seq]
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle}) : \text{Unit} \xrightarrow{C_1'} \pctx[p:\text{Idle}],\, s^2_{\max} \\ C_1' = C_{t\text{Idle}} \\  C_{1'\text{-max}} = \text{cost}(s_{\max}) \\ \tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash x + 1 : \text{int} \xrightarrow{C_2'} \pctx[p:\text{Idle}], s^2_{\max} \\ C_2' = C_{x+1} \\  C_{2'\text{-max}} = \text{cost}(s^2_{\max}) \\ C_{\text{else}} = C_1' + C_2' + C_{1'\text{-max}} + C_{2'\text{-max}}
+}
+{
+\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle});\; x + 1 : \text{int} \xrightarrow{C_{\text{else}}} \pctx[p:\text{Idle}],\, s^2_{\max}
+}
+\and
+\inferrule*[right=T-Branch]
+{
+\tctx,\pctx,s_{\max} \vdash x > 1 : \text{bool} \xrightarrow{C'} \pctx, s_{\max} \\ \tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off}); x - 1 : \text{int} \xrightarrow{C_{\text{then}}} \pctx[p:\text{Off}], s^1_{\max} \\ \tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle}); x + 1 : \text{int} \xrightarrow{C_{\text{else}}} \pctx[p:\text{Idle}], s^2_{\max} \\ C_{\text{total}} = C' + \max(C_{\text{then}}, C_{\text{else}}) \\ \pctx' = \pctx[p:\text{Off}] \sqcup \pctx[p:\text{Idle}] \\ s'_{\max} = s^1_{\max} \lub s^2_{\max}
+}
+{
+\tctx,\pctx,s_{\max} \vdash Prog : \text{int} \xrightarrow{C_{\text{total}}} \pctx', s'_{\max}
+} \\ 
+Prog = \text{if } (x > 1) \text{ then } \text{\{transition}(p,\text{Off}); x - 1\} \text{ else } \{\text{transition}(p,\text{Idle}); x + 1\}
 \end{mathpar}
