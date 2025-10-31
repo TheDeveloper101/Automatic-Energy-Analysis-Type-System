@@ -3,32 +3,39 @@
 We present a simple imperative language. 
 \[
 \begin{array}{lcll}
-e & \bnfdef & x & \text{(variable)} \\
-  & \bnfalt & \text{let } x = e_1 \text{ in } e_2 & \text{(let)} \\
-  & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
+\text{Instructions: }i & \bnfdef & x & \text{(variable)}  \\
+    & \bnfalt & v & \text{(value)} \\
+    & \bnfalt & i_1 \text{ binop } i_2 & \text{(binary operation)} \\
+    & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
+    & \bnfalt & i_1; \ i_2 & \text{(instruction seq)}
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Expressions: }e & \bnfdef & i & \text{(instruction)} \\ & \bnfalt & \text{let } x = i & \text{(let)} \\
   & \bnfalt & e_1\ e_2 & \text{(application)} \\
-  & \bnfalt & \lambda x.\,e & \text{(function abstraction)} \\
+  & \bnfalt & \lambda x.\,i & \text{(function abstraction)} \\
   & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } e & \text{(share)} \\
-  & \bnfalt & \text{atomic}(e) & \text{(atomic)} \\
-  & \bnfalt & e_1;\ e_2 & \text{(seq)} \\
-  & \bnfalt & \text{if } e \text{ then } e_1 \text{ else } e_2 & \text{(branch)} \\ 
-  & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operations)}
+  & \bnfalt & \text{atomic}(i) & \text{(atomic)} \\
+  & \bnfalt & \text{if } i \text{ then } e_1 \text{ else } e_2 & \text{(branch)} 
 \end{array}
 \]
 
-Our judgments use the following additional contexts. 
+Our judgments use the following additional constructs. 
 \[
 \begin{array}{llcl}
-\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau, \tctx \bnfalt f \rightarrow ( \tau_{1} \rightarrow \tau_{2}), \tctx \bnfalt \cdot
+\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau, \tctx \bnfalt \cdot
 \\ 
-\textit{Types} & \tau & \bnfdef & b \bnfalt \tau_1 \rightarrow \tau_2 \bnfalt \rho 
+\textit{Types} & \tau & \bnfdef & \text{int} \bnfalt \text{bool} \bnfalt \tau_1 \rightarrow \tau_2 \bnfalt \rho 
 \\
-\textit{State Lattice} & S & \bnfdef & (\langle s_{0},s_{1},\ldots,s_{n}\rangle, <)
+\textit{Peripheral} & p & \bnfdef & (\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D)
 \\
-\textit{Peripheral State Context} & \pctx & \bnfdef &  p \rightarrow (S,s_{\mt{curr}}), \pctx \bnfalt \cdot
+\textit{Downgrade policy} & D & \bnfdef & \langle (s_i, s_j), \ldots \rangle
+\\
+\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow s_{\mt{curr}}, \pctx \bnfalt \cdot
 \end{array}
 \]
-
+\sai{I found this paper: "Security Policies for Downgrading" which discusses Security policies for declassification. The paper discusses how one can allow for declassification to happen when a condition is met. Right now, I define a "downgrade policy" to just be pairs of states such that the peripheral can transition backwards from the higher state into the lower state. But, real peripherals also automatically lower their state once they complete an operation. One example would be a radio that starts in an idle state, performs a receive operation and then goes back to idle before the function ends. In this case, one could specify this as a downgrade policy that gets triggered on the condition that the receive operation completed successfully, which I think works well with intermittent computing.}
 We also assume the existence of the cost functions 
 $\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when
 \(s_{i} \leq s_{j}\) and 
@@ -43,18 +50,13 @@ We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ a
 where the $s_1 \lub s_2$ is a standard notion of a lattice join, that is, 
 \(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements.
-
-
-\(\pctx' \lub \pctx'' = \pctx^{\ast} \rightarrow \forall p \in \pctx',\pctx'',\pctx^{\ast}(p) = \pctx'(p) \lub \pctx''(p)\)\\
 In words, the join of two peripheral contexts is a new context whose
 elements are the join of the current state of each peripheral in the
-context, and $\m{dom}(\pctx') = \m{dom}(\pctx'')$. \\ 
-\sai{I added the assumption that the domains of the two contexts are equal. However, I wonder if one could define the join of two contexts that do not have equal domains by extending the domains to include peripherals that are in one and not in the other, but set to the Off state. For example, say $\pctx = \{\text{Temp: On, I2C: Rx, Radio: Tx}\}$ and \\ $\pctx' = \{\text{Temp: On, I2C: Rx, Humidity: On}\}$. Then we can extend $\pctx$ to $\pctx_e =  \{\text{Temp: On, I2C: Rx, Radio: Tx, Humidity: Off}\}$ and $\pctx'$ to \\ $\pctx'_e = \{\text{Temp: On, I2C: Rx, Humidity: On, Radio: Off}\}$ and then set $\pctx^* = \pctx_e \lub \pctx'_e = \{\text{Temp: On, I2C: Rx, Radio: Tx, Humidity: On\}}$.} \\ \\ 
-Our judgment are of the form 
-$\tctx,\pctx, s_{\max} \vdash e:\tau \Costarrow{C} \pctx', s'_{\max}$
+context, and $\m{dom}(\pctx') = \m{dom}(\pctx'')$.
 
-\milijana{reached up to here} \\
 For now, we will assume that we only have one peripheral.
+\sai{I believe that we want to track the set of the potential states a peripheral could be in, and check that every transition is valid when we perform a transition. Also, do we need a separate rule for downgrading, or can we "overload" transition to have a separate rule for the assumption that we are attempting to downgrade}
+\todo{finish updating rules and add in extra rules for the remaining language constructs.}
 \begin{mathpar}
 \inferrule*[right=T-Seq]
 {
@@ -65,22 +67,22 @@ For now, we will assume that we only have one peripheral.
   C = C_1 + C_2 + C_{1\text{-max}} + C_{2\text{-max}}
 }
 {
-  \tctx, \pctx, s_{\max} \vdash e_1; e_2 : \tau_2 \xrightarrow{C} \pctx'', s''_{\max}
+  \tctx, \pctx, s_{\max} \vdash i_1; i_2 : \tau_2 \xrightarrow{C} \pctx'', s''_{\max}
 }
 
 \inferrule*[right=T-Atomic]
 {
-  \tctx, \pctx, s_{\max} \vdash e : \tau \xrightarrow{C_1} \pctx', s'_{\max} \\
+  \tctx, \pctx, s_{\max} \vdash i : \tau \xrightarrow{C_1} \pctx', s'_{\max} \\
   C_{\max} = \text{cost}(s'_{\max}) \\
   C = C_1 + C_{\max}
 }
 {
-  \tctx, \pctx, s_{\max} \vdash \text{atomic}(e) : \tau \xrightarrow{C} \pctx', s'_{\max}
+  \tctx, \pctx, s_{\max} \vdash \text{atomic}(i) : \tau \xrightarrow{C} \pctx', s'_{\max}
 }
 
 \inferrule*[right=T-Branch]
 {
-  \tctx, \pctx, s_{\max} \vdash e : \text{bool} \xrightarrow{C'} \pctx, s_{\max} \\
+  \tctx, \pctx, s_{\max} \vdash i : \text{bool} \xrightarrow{C'} \pctx, s_{\max} \\
   \tctx, \pctx, s_{\max} \vdash e_1 : \tau \xrightarrow{C_1} \pctx_1, s^1_{\max} \\
   \tctx, \pctx, s_{\max} \vdash e_2 : \tau \xrightarrow{C_2} \pctx_2, s^2_{\max}\\
   C = C' + \max(C_1, C_2) \\
@@ -88,7 +90,7 @@ For now, we will assume that we only have one peripheral.
   s'_{\max} = s^1_{\max} \lub s^2_{\max}
 }
 {
-  \tctx, \pctx, s_{\max} \vdash \text{if } e \text{ then } e_1 \text{ else } e_2 : \tau \xrightarrow{C} \pctx', s'_{\max}
+  \tctx, \pctx, s_{\max} \vdash \text{if } i \text{ then } e_1 \text{ else } e_2 : \tau \xrightarrow{C} \pctx', s'_{\max}
 }
 
 \inferrule*[right=T-Transition]
@@ -104,11 +106,11 @@ For now, we will assume that we only have one peripheral.
 
 \inferrule*[right=T-Binop]
 {
-\tctx, \pctx, s_{\max} \vdash e_1 : \text{int} \xrightarrow{C_1} \pctx, s_{\max} \\ \tctx, \pctx, s_{\max} \vdash e_2 : \text{int} \xrightarrow{C_2} \pctx, s_{\max} \\
+\tctx, \pctx, s_{\max} \vdash e_1 : \text{int} \xrightarrow{C_1} \pctx, s_{\max} \\ \tctx, \pctx, s_{\max} \vdash e_2 : \tau \xrightarrow{C_2} \pctx, s_{\max} \\
 C = C_1 + C_2 + C_{bin}
 }
 {
-\tctx, \pctx, s_{\max} \vdash e_1 \text{ binop } e_2 : \text{int} \xrightarrow{C} \pctx, s_{\max}
+\tctx, \pctx, s_{\max} \vdash i_1 \text{ binop } i_2 : \tau \xrightarrow{C} \pctx, s_{\max}
 }
 
 \inferrule*[right=T-Var]
@@ -119,125 +121,4 @@ C = C_1 + C_2 + C_{bin}
 \tctx,\pctx,s_{\max} \vdash x : \tau \xrightarrow{C_v} \pctx, s_{\max}
 }
 
-\inferrule*[right=T-Comp]
-{
-\tctx, \pctx, s_{\max} \vdash e_1 : \text{int} \xrightarrow{C_1} \pctx, s_{\max} \\ \tctx, \pctx, s_{\max} \vdash e_2 : \text{int} \xrightarrow{C_2} \pctx, s_{\max} \\ C = C_1 + C_2 + C_{\text{cmp}}
-}
-{
-\tctx, \pctx, s_{\max} \vdash e_1\ \text{op}\ e_2 : \text{bool} \xrightarrow{C} \pctx, s_{\max}
-}
-
-\end{mathpar}
-\newpage
-Some example derivations: 
-
-\begin{mathpar}
-\inferrule*[right=T-Trans]
-{
-\tctx(x) = \rho \\ \pctx(x) = s_i \\ s_i \le \text{On} \\ C_t = \text{cost}(s_i,\text{On}) \\ s'_{\max} = s_{\max} \lub \text{On}
-}
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(x,\text{On}) : \text{Unit} \xrightarrow{C_t} \pctx[x:\text{On}],\, s'_{\max}
-}
-\and
-\inferrule*[right=T-Var]
-{
-  \tctx(y) = \text{int}
-}
-{
-\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max}
-}
-\and
-\inferrule*[right=T-Var]
-{
-  \tctx(z) = \text{int}
-}
-{
-\tctx,\pctx[x:\text{On}],s'_{\max} \vdash z : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max}
-}
-\and
-\inferrule*[right=T-Binop]
-{
-\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max} \\ \tctx,\pctx[x:\text{On}],s'_{\max} \vdash z : \text{int} \xrightarrow{C_v} \pctx[x:\text{On}],\, s'_{\max} \\ C_b = C_v + C_v + C_{bin}
-}
-{
-\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y \;+\; z : \text{int} \xrightarrow{C_b} \pctx[x:\text{On}],\, s'_{\max}
-}
-\and
-\inferrule*[right=T-Seq]
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(x,\text{On}) : \text{Unit} \xrightarrow{C_t} \pctx[x:\text{On}],\, s'_{\max} \\  C_{1\text{-max}} = \text{cost}(s_{\max}) \\
-\tctx,\pctx[x:\text{On}],s'_{\max} \vdash y + z : \text{int} \xrightarrow{C_b} \pctx[x:\text{On}],\, s'_{\max} \\ C_{2\text{-max}} = \text{cost}(s'_{\max}) \\ C = C_t + C_b + C_{1\text{-max}} + C_{2\text{-max}}
-}
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(x,\text{On});\; y + z : \text{int} \xrightarrow{C} \pctx[x:\text{On}],\, s'_{\max}
-}
-\end{mathpar}
-\newpage
-\begin{mathpar}
-    
-\inferrule*[right=T-Comp]
-{
-\inferrule*[right=T-Var] { \tctx(x) = \text{int} } { \tctx,\pctx,s_{\max} \vdash x : \text{int} \xrightarrow{C_v} \pctx, s_{\max} } \\ \inferrule*[] { } { \tctx,\pctx,s_{\max} \vdash 1 : \text{int} \xrightarrow{0} \pctx, s_{\max} } \\ C' = C_v + 0 + C_{\text{comp}}
-}
-{
-\tctx,\pctx,s_{\max} \vdash x > 1 : \text{bool} \xrightarrow{C'} \pctx, s_{\max}
-}
-\and
-\inferrule*[right=T-Trans]
-{
-\tctx(p) = \rho \\ \pctx(p) = s_i \\ s_i \le \text{Off} \\ C_{t\text{Off}} = \text{cost} (s_i,\text{Off}) \\ s^1_{\max} = s_{\max} \lub \text{Off}
-}
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off}) : \text{Unit} \xrightarrow{C_{t\text{Off}}} \pctx[p:\text{Off}], s^1_{\max}
-}
-\and
-\inferrule*[right=T-Binop]
-{
-\tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash x : \text{int} \xrightarrow{C_v} \pctx[p:\text{Off}], s^1_{\max} \\ \tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash 1 : \text{int} \xrightarrow{0} \pctx[p:\text{Off}], s^1_{\max} \\ C_{x-1} = C_v + 0 + C_{bin}
-}
-{
-\tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash x - 1 : \text{int} \xrightarrow{C_{x-1}} \pctx[p:\text{Off}], s^1_{\max}
-}
-\and
-\inferrule*[right=T-Seq]
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off}) : \text{Unit} \xrightarrow{C_1} \pctx[p:\text{Off}],\, s^1_{\max} \\ C_1 = C_{t\text{Off}} \\ C_{1\text{-max}} = \text{cost} (s_{\max}) \\ \tctx,\pctx[p:\text{Off}],s^1_{\max} \vdash x - 1 : \text{int} \xrightarrow{C_2} \pctx[p:\text{Off}],\, s^1_{\max} \\ C_2 = C_{x-1} \\ C_{2\text{-max}} = \text{cost}(s^1_{\max}) \\ C_{\text{then}} = C_1 + C_2 + C_{1\text{-max}} + C_{2\text{-max}}
-}
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off});\; x - 1 : \text{int} \xrightarrow{C_{\text{then}}} \pctx[p:\text{Off}],\, s^1_{\max}
-}
-\and
-\inferrule*[right=T-Trans]
-{ 
-\tctx(p) = \rho \\ \pctx(p) = s_i \\ s_i \leq \text{Idle} \\ C_{t\text{Idle}} = \text{cost}(s_i,\text{Idle}) \\ s^2_{\max} = s_{\max} \lub \text{Idle}
-}
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle}) : \text{Unit} \xrightarrow{C_{t\text{Idle}}} \pctx[p:\text{Idle}],\, s^2_{\max}
-}
-\and
-\inferrule*[right=T-Binop]
-{ \tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash x : \text{int} \xrightarrow{C_v} \pctx[p:\text{Idle}], s^2_{\max} \\ \tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash 1 : \text{int} \xrightarrow{0} \pctx[p:\text{Idle}], s^2_{\max} \\
-  C_{x+1} = C_v + 0 + C_{bin}
-}
-{
-\tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash x + 1 : \text{int} \xrightarrow{C_{x+1}} \pctx[p:\text{Idle}], s^2_{\max}
-}
-\and
-\inferrule*[right=T-Seq]
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle}) : \text{Unit} \xrightarrow{C_1'} \pctx[p:\text{Idle}],\, s^2_{\max} \\ C_1' = C_{t\text{Idle}} \\  C_{1'\text{-max}} = \text{cost}(s_{\max}) \\ \tctx,\pctx[p:\text{Idle}],s^2_{\max} \vdash x + 1 : \text{int} \xrightarrow{C_2'} \pctx[p:\text{Idle}], s^2_{\max} \\ C_2' = C_{x+1} \\  C_{2'\text{-max}} = \text{cost}(s^2_{\max}) \\ C_{\text{else}} = C_1' + C_2' + C_{1'\text{-max}} + C_{2'\text{-max}}
-}
-{
-\tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle});\; x + 1 : \text{int} \xrightarrow{C_{\text{else}}} \pctx[p:\text{Idle}],\, s^2_{\max}
-}
-\and
-\inferrule*[right=T-Branch]
-{
-\tctx,\pctx,s_{\max} \vdash x > 1 : \text{bool} \xrightarrow{C'} \pctx, s_{\max} \\ \tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Off}); x - 1 : \text{int} \xrightarrow{C_{\text{then}}} \pctx[p:\text{Off}], s^1_{\max} \\ \tctx,\pctx,s_{\max} \vdash \text{transition}(p,\text{Idle}); x + 1 : \text{int} \xrightarrow{C_{\text{else}}} \pctx[p:\text{Idle}], s^2_{\max} \\ C_{\text{total}} = C' + \max(C_{\text{then}}, C_{\text{else}}) \\ \pctx' = \pctx[p:\text{Off}] \sqcup \pctx[p:\text{Idle}] \\ s'_{\max} = s^1_{\max} \lub s^2_{\max}
-}
-{
-\tctx,\pctx,s_{\max} \vdash Prog : \text{int} \xrightarrow{C_{\text{total}}} \pctx', s'_{\max}
-} \\ 
-Prog = \text{if } (x > 1) \text{ then } \text{\{transition}(p,\text{Off}); x - 1\} \text{ else } \{\text{transition}(p,\text{Idle}); x + 1\}
 \end{mathpar}
