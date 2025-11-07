@@ -3,21 +3,24 @@
 We present a simple imperative language. 
 \[
 \begin{array}{lcll}
-\text{Instructions: }i & \bnfdef & x & \text{(variable)}  \\
-    & \bnfalt & v & \text{(value)} \\
-    & \bnfalt & i_1 \text{ binop } i_2 & \text{(binary operation)} \\
-    & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
-    & \bnfalt & i_1; \ i_2 & \text{(instruction seq)}
+\text{Declarations: }d & \bnfdef & c & \text{(command)} \\ & \bnfalt & \text{atomic}(c) & \text{(atomic)} \\ & \bnfalt & \text{fn } f(\Vec{x_{p}}) : \Vec{x_{r}} \ \{c\} & \text{(function)} \\ & \bnfalt & d_1 \ d_2 & \text{(sequence)}
 \end{array}
 \]
 \[
 \begin{array}{lcll}
-\text{Expressions: }e & \bnfdef & i & \text{(instruction)} \\ & \bnfalt & \text{let } x = i & \text{(let)} \\
-  & \bnfalt & e_1\ e_2 & \text{(application)} \\
-  & \bnfalt & \lambda x.\,i & \text{(function abstraction)} \\
-  & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } e & \text{(share)} \\
-  & \bnfalt & \text{atomic}(i) & \text{(atomic)} \\
-  & \bnfalt & \text{if } i \text{ then } e_1 \text{ else } e_2 & \text{(branch)} 
+\text{Commands: }c & \bnfdef & e & \text{(expression)} \\ & \bnfalt & \text{let } x = e & \text{(let)} \\
+  & \bnfalt &\text{let } x = f(\Vec{e}) & \text{(function call)} \\
+  & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } c & \text{(share)} \\ 
+  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\
+    & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
+    & \bnfalt & c_1; c_2 & \text{(command seq)}
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Expressions: }e & \bnfdef & x & \text{(variable)}  \\
+    & \bnfalt & v & \text{(value)} \\
+    & \bnfalt & i_1 \text{ binop } i_2 & \text{(binary operation)} 
 \end{array}
 \]
 
@@ -30,13 +33,14 @@ Our judgments use the following additional constructs.
 \\
 \textit{Peripheral} & p & \bnfdef & (\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D)
 \\
-\textit{Downgrade policy} & D & \bnfdef & \langle (s_i, s_j), \ldots \rangle
+\textit{Downgrade policy} & D & \bnfdef & s' \hookrightarrow^q s, D \bnfalt \cdot
+\\
+\textit{Downgrade condition} & q & \bnfdef & d \bnfalt \textbf{t} \bnfalt \textbf{f} \bnfalt q_1 \land q_2 \bnfalt \neg q \bnfalt q_1 \lor q_2
 \\
 \textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow s_{\mt{curr}}, \pctx \bnfalt \cdot
 \end{array}
 \]
-\sai{I found this paper: "Security Policies for Downgrading" which discusses Security policies for declassification. The paper discusses how one can allow for declassification to happen when a condition is met. Right now, I define a "downgrade policy" to just be pairs of states such that the peripheral can transition backwards from the higher state into the lower state. But, real peripherals also automatically lower their state once they complete an operation. One example would be a radio that starts in an idle state, performs a receive operation and then goes back to idle before the function ends. In this case, one could specify this as a downgrade policy that gets triggered on the condition that the receive operation completed successfully, which I think works well with intermittent computing.}
-We also assume the existence of the cost functions 
+A downgrade policy $s' \hookrightarrow^q s$ means that a peripheral in state $s'$ can transition to state $s$ when condition $q$ is met, assuming that $s' > s$. A downgrade condition $q$ consists of a formula in proposition logic using base conditions $d$. We also assume the existence of the cost functions 
 $\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when
 \(s_{i} \leq s_{j}\) and 
 $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\).
@@ -45,7 +49,7 @@ We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ a
 \inferrule{
     s_3 = s_1 \lub s_2 \\ \pctx_3 = \pctx_1' \lub \pctx_2' \\ \m{dom}(\pctx_1') = \m{dom}(\pctx_2') 
 }
-{  p \rightarrow (S,s_1), \pctx_1' \lub p \rightarrow (S,s_2), \pctx_2' = p \rightarrow (S, s_3), \pctx_3 }
+{  p \rightarrow s_1, \pctx_1' \lub p \rightarrow s_2, \pctx_2' = p \rightarrow s_3, \pctx_3 }
 \end{mathpar}
 where the $s_1 \lub s_2$ is a standard notion of a lattice join, that is, 
 \(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
@@ -55,9 +59,23 @@ elements are the join of the current state of each peripheral in the
 context, and $\m{dom}(\pctx') = \m{dom}(\pctx'')$.
 
 For now, we will assume that we only have one peripheral.
-\sai{I believe that we want to track the set of the potential states a peripheral could be in, and check that every transition is valid when we perform a transition. Also, do we need a separate rule for downgrading, or can we "overload" transition to have a separate rule for the assumption that we are attempting to downgrade}
-\todo{finish updating rules and add in extra rules for the remaining language constructs.}
+\todo{Finish the typing rule for functions}
+
 \begin{mathpar}
+\inferrule*[right=T-Call]
+{
+    \tctx(f): \tau_1 \xrightarrow{C_f} \tau_2 \\ \tctx_0 = \tctx, \forall i.\;
+  \tctx_{i-1}, \pctx_{i-1}, S_{i-1} \vdash e_i : \tau_i \xrightarrow{C_i} \tctx_i, \pctx_i, S_i   \\ C = \sum_i C_i + C_f
+}
+{
+  \tctx, \pctx, S \vdash
+  \text{let } x = f(\Vec{e})
+  \xrightarrow{C}
+  \tctx[x \mapsto \tau_2], \pctx', S'
+}
+
+\todo{update the rest of these rules}
+
 \inferrule*[right=T-Seq]
 {
   \tctx, \pctx, s_{\max} \vdash e_1 : \tau_1 \xrightarrow{C_1} \pctx', s'_{\max} \\
