@@ -3,13 +3,13 @@
 We present a simple imperative language. 
 \[
 \begin{array}{lcll}
-\text{Declarations: }d & \bnfdef & c & \text{(command)} \\ & \bnfalt & \text{atomic}(c) & \text{(atomic)} \\ & \bnfalt & \text{fn } f(\Vec{x_{p}}) : \Vec{x_{r}} \ \{c\} & \text{(function)} \\ & \bnfalt & d_1 \ d_2 & \text{(sequence)}
+\text{Declarations: }d & \bnfdef & c & \text{(command)} \\ & \bnfalt & \text{atomic}(c) & \text{(atomic)} \\ & \bnfalt & \text{fn } f(x_{i}) : x_{r} \ \{c\} & \text{(function)} \\ & \bnfalt & d_1 \ d_2 & \text{(sequence)}
 \end{array}
 \]
 \[
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & e & \text{(expression)} \\ & \bnfalt & \text{let } x = e & \text{(let)} \\
-  & \bnfalt &\text{let } x = f(\Vec{e}) & \text{(function call)} \\
+  & \bnfalt &\text{let } x = f(e) & \text{(function call)} \\
   & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } c & \text{(share)} \\ 
   & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\
     & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
@@ -20,7 +20,7 @@ We present a simple imperative language.
 \begin{array}{lcll}
 \text{Expressions: }e & \bnfdef & x & \text{(variable)}  \\
     & \bnfalt & v & \text{(value)} \\
-    & \bnfalt & i_1 \text{ binop } i_2 & \text{(binary operation)} 
+    & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operation)} 
 \end{array}
 \]
 
@@ -29,21 +29,32 @@ Our judgments use the following additional constructs.
 \begin{array}{llcl}
 \textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau, \tctx \bnfalt \cdot
 \\ 
-\textit{Types} & \tau & \bnfdef & \text{int} \bnfalt \text{bool} \bnfalt \tau_1 \rightarrow \tau_2 \bnfalt \rho 
+\textit{Types} & \tau & \bnfdef & \text{int} \bnfalt \text{bool} \bnfalt \tau_1 \rightarrow \tau_2  
 \\
 \textit{Peripheral} & p & \bnfdef & (\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D)
 \\
 \textit{Downgrade policy} & D & \bnfdef & s' \hookrightarrow^q s, D \bnfalt \cdot
 \\
-\textit{Downgrade condition} & q & \bnfdef & d \bnfalt \textbf{t} \bnfalt \textbf{f} \bnfalt q_1 \land q_2 \bnfalt \neg q \bnfalt q_1 \lor q_2
+\textit{Downgrade condition} & q & \bnfdef & b \bnfalt \textbf{t} \bnfalt \textbf{f} \bnfalt q_1 \land q_2 \bnfalt \neg q \bnfalt q_1 \lor q_2
 \\
 \textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow s_{\mt{curr}}, \pctx \bnfalt \cdot
+\\
+\textit{Potential States} & S & \bnfdef & p \rightarrow (s_{pos}), S \bnfalt \cdot
 \end{array}
 \]
-A downgrade policy $s' \hookrightarrow^q s$ means that a peripheral in state $s'$ can transition to state $s$ when condition $q$ is met, assuming that $s' > s$. A downgrade condition $q$ consists of a formula in proposition logic using base conditions $d$. We also assume the existence of the cost functions 
+
+A downgrade policy $s' \hookrightarrow^q s$ means that a peripheral in state $s'$ can transition to state $s$ when condition $q$ is met, assuming that $s' > s$. A downgrade condition $q$ consists of a formula in proposition logic using base conditions $b$. Since we do not know what peripherals will be active when a function is declared, we extend our definition of $S$ to $S_f^{in/out}$ which maps possible peripherals to symbolic states. We assume the existence of two related functions: $\m{unify}(S, S_f)$ and $\m{max}(S)$. $\m{unify}(S, S_f)$ takes a symbolic possible state map $S_f$ and substitutes in values from $S$ as follows. \begin{mathpar}
+   \inferrule{
+    S' = \m{unify}(S, S_f) \\ \m{dom}(S) = \m{dom}(S_f)
+   } {
+   \m{unify}((p \mapsto s_p, S), (p \mapsto sym, S_f)) = p \mapsto s_p, S'
+   }
+\end{mathpar}
+$\m{max}(S)$ will return the maximum possible state of each peripheral.
+We also assume the existence of the cost functions 
 $\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when
 \(s_{i} \leq s_{j}\) and 
-$\m{cost}(s_{i})$ = cost of being in state \(s_{i}\).
+$\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Finally, $\m{cost}(\m{max}(S))$ = the sum of the cost of being in the maximum state for each peripheral. 
 We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ as follows.
 \begin{mathpar}
 \inferrule{
@@ -59,22 +70,33 @@ elements are the join of the current state of each peripheral in the
 context, and $\m{dom}(\pctx') = \m{dom}(\pctx'')$.
 
 For now, we will assume that we only have one peripheral.
-\todo{Finish the typing rule for functions}
+
+\todo{update the non-function rules} 
 
 \begin{mathpar}
-\inferrule*[right=T-Call]
+\inferrule*[right=T-FunDecl]
 {
-    \tctx(f): \tau_1 \xrightarrow{C_f} \tau_2 \\ \tctx_0 = \tctx, \forall i.\;
-  \tctx_{i-1}, \pctx_{i-1}, S_{i-1} \vdash e_i : \tau_i \xrightarrow{C_i} \tctx_i, \pctx_i, S_i   \\ C = \sum_i C_i + C_f
+  \tctx, x:\tau_1, \pctx, S_f^{in} \vdash c : \tau_2 \xrightarrow{C_f} \pctx', S_f^{out} 
 }
 {
   \tctx, \pctx, S \vdash
-  \text{let } x = f(\Vec{e})
-  \xrightarrow{C}
-  \tctx[x \mapsto \tau_2], \pctx', S'
+  \text{fn }f(x:\tau_1) : \tau_2 \ \{c\} : 
+  \Gamma[f \mapsto (\tau_1, S_f^{in}) \xrightarrow{C_f} (\tau_2, S_f^{out})],
+  \pctx, S
 }
 
-\todo{update the rest of these rules}
+\inferrule*[right=T-Call]
+{
+  \tctx,\pctx,S \vdash e : \xrightarrow{C_e} \tau_1, \pctx, S 
+  \\
+  \tctx(f) = (\tau_1, S_f^{in}) \xrightarrow{C_f} (\tau_2, S_f^{out}) \\
+  S_c = \mathsf{unify}(S,\, S_f^{in}) \\ C = C_f + C_e + \m{cost} (\max (S_c) )
+}
+{
+  \tctx, \pctx, S \vdash \text{let } x = f(e) : \tau_2, \xrightarrow{C} \tctx[x \mapsto \tau_2], \pctx', S_c
+}
+
+\sai{don't read past here}
 
 \inferrule*[right=T-Seq]
 {
