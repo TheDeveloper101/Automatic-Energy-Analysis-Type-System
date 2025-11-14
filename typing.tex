@@ -43,7 +43,7 @@ Our judgments use the following additional constructs.
 \end{array}
 \]
 
-A downgrade policy $s' \hookrightarrow^q s$ means that a peripheral in state $s'$ can transition to state $s$ when condition $q$ is met, assuming that $s' > s$. A downgrade condition $q$ consists of a formula in proposition logic using base conditions $b$. Since we do not know what peripherals will be active when a function is declared, we extend our definition of $S$ to $S_f^{in/out}$ which maps possible peripherals to symbolic states. We assume the existence of two related functions: $\m{unify}(S, S_f)$ and $\m{max}(S)$. $\m{unify}(S, S_f)$ takes a symbolic possible state map $S_f$ and substitutes in values from $S$ as follows. \begin{mathpar}
+A downgrade policy $s' \hookrightarrow^q s$ means that a peripheral in state $s'$ can transition to state $s$ when condition $q$ is met, assuming that $s' > s$. A downgrade condition $q$ consists of a formula in proposition logic using base conditions $b$. We keep track of the potential states a peripheral could be in using $S$. Since we do not know what peripherals will be active when a function is declared, we extend our definition of $S$ to $S_f^{in/out}$ which maps possible peripherals to symbolic states. We assume the existence of two related functions: $\m{unify}(S, S_f)$ and $\m{max}(S)$. $\m{unify}(S, S_f)$ takes a symbolic possible state map $S_f$ and substitutes in values from $S$ as follows. \begin{mathpar}
    \inferrule{
     S' = \m{unify}(S, S_f) \\ \m{dom}(S) = \m{dom}(S_f)
    } {
@@ -87,13 +87,12 @@ For now, we will assume that we only have one peripheral.
 
 \inferrule*[right=T-Call]
 {
-  \tctx,\pctx,S \vdash e : \xrightarrow{C_e} \tau_1, \pctx, S 
-  \\
-  \tctx(f) = (\tau_1, S_f^{in}) \xrightarrow{C_f} (\tau_2, S_f^{out}) \\
-  S_c = \mathsf{unify}(S,\, S_f^{in}) \\ C = C_f + C_e + \m{cost} (\max (S_c) )
+  \tctx(f) = (\tau_1, S_f^{in}) \xrightarrow{C_f} (\tau_2, S_f^{out}) \\ 
+  S_c = \mathsf{unify}(S,\, S_f^{in}) \\ \tctx,\pctx,S_c \vdash e : \xrightarrow{C_e} \tau_1, \pctx, S'_c 
+  \\ C = C_f + C_e + \m{cost} (\max (S'_c) )
 }
 {
-  \tctx, \pctx, S \vdash \text{let } x = f(e) : \tau_2, \xrightarrow{C} \tctx[x \mapsto \tau_2], \pctx', S_c
+  \tctx, \pctx, S \vdash \text{let } x = f(e) : \tau_2, \xrightarrow{C} \tctx[x \mapsto \tau_2], \pctx', S'_c
 }
 
 \sai{don't read past here}
