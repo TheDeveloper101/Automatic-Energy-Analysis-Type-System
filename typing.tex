@@ -11,9 +11,7 @@ We present a simple imperative language.
 \text{Commands: }c & \bnfdef & e & \text{(expression)} \\ & \bnfalt & \text{let } x = e & \text{(let)} \\ 
   & \bnfalt &\text{let } x = f(e) & \text{(function call)} \\ & \bnfalt & \text{atomic}(c) & \text{(atomic)} \\
   & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } c & \text{(share)} \\ 
-  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\
-    & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\
-    & \bnfalt & c_1; c_2 & \text{(command seq)}
+  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
 \end{array}
 \]
 \[
@@ -105,6 +103,14 @@ For now, we will assume that we only have one peripheral.
 }
 { 
 \tctx,\pctx,S \vdash \text{transition}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], S[p \mapsto st \cup \{s_{pos}\}]
+}
+
+\inferrule*[left=T-Downgrade]
+{
+\tctx,\pctx, S \vdash x : \rho \\ \pctx(x) = s_i \\ st \hookrightarrow s_i \in p(D)
+}
+{ 
+\tctx,\pctx,S \vdash \text{downgrade}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], S[p \mapsto s' \cup \{s_{pos}\}]
 }
 
 \inferrule*[left=T-If]
