@@ -9,7 +9,7 @@ We present a simple imperative language.
 \[
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & e & \text{(expression)} \\ & \bnfalt & \text{let } x = e & \text{(let)} \\ 
-  & \bnfalt &\text{let } x = f(e) & \text{(function call)} \\ & \bnfalt & \text{atomic}(c) & \text{(atomic)} \\
+  & \bnfalt &\text{let } x = f(e, p) & \text{(function call)} \\ & \bnfalt & \text{atomic}(c) & \text{(atomic)} \\
   & \bnfalt & \text{share } x \text{ as } x_1, x_2 \text{ in } c & \text{(share)} \\ 
   & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
 \end{array}
@@ -21,7 +21,7 @@ We present a simple imperative language.
     & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operation)} 
 \end{array}
 \]
-
+\sai{maybe remove the command in the declarations part of the language? doesn't make sense to have sequences of commands, and then function declarations in between}
 Our judgments use the following additional constructs. 
 \[
 \begin{array}{llcl}
