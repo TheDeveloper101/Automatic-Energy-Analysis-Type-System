@@ -41,13 +41,7 @@ Our judgments use the following additional constructs.
 \end{array}
 \]
 
-A downgrade policy $s' \hookrightarrow s$ means that a peripheral in state $s'$ can transition to state $s$ assuming that $s' > s$. We keep track of the potential states a peripheral could be in using $S$. Since we do not know what peripherals will be active when a function is declared, we extend our definition of $S$ to $S_f^{in/out}$ which maps possible peripherals to symbolic states. We assume the existence of two related functions: $\m{unify}(S, S_f)$ and $\m{max}(S)$. $\m{unify}(S, S_f)$ takes a symbolic possible state map $S_f$ and substitutes in values from $S$ as follows. \begin{mathpar}
-   \inferrule{
-    S' = \m{unify}(S, S_f) \\ \m{dom}(S) = \m{dom}(S_f)
-   } {
-   \m{unify}((p \mapsto s_p, S), (p \mapsto sym, S_f)) = p \mapsto s_p, S'
-   }
-\end{mathpar}
+A downgrade policy $s' \hookrightarrow s$ means that a peripheral in state $s'$ can transition to state $s$ assuming that $s' > s$. We keep track of the potential states a peripheral could be in using $S$. 
 $\m{max}(S)$ will return the maximum possible state of each peripheral.
 We also assume the existence of the cost functions 
 $\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Finally, $\m{cost}(\m{max}(S))$ = the sum of the cost of being in the maximum state for each peripheral. 
@@ -66,6 +60,8 @@ elements are the join of the current state of each peripheral in the
 context, and $\m{dom}(\pctx') = \m{dom}(\pctx'')$.
 
 For now, we will assume that we only have one peripheral.
+
+\sai{Typestate system starts here}
 
 \begin{mathpar}
 
@@ -115,7 +111,7 @@ For now, we will assume that we only have one peripheral.
 
 \inferrule*[left=T-If]
 {
-\tctx,\pctx,S \vdash e : \text{bool} \\ \tctx,\pctx,S \vdash c_1 : \tau \Rightarrow \tctx', \pctx', S' \\ \tctx,\pctx,S \vdash c_2 : \tau \Rightarrow \tctx'', \pctx'', S'' \\ \tctx* = \tctx' \lub \tctx'' \\ \pctx* = \pctx' \lub \pctx'' \\ S* = S' \lub S''
+\tctx,\pctx,S \vdash e : \text{bool} \\ \tctx,\pctx,S \vdash c_1 : \tau \Rightarrow \tctx', \pctx', S' \\ \tctx,\pctx,S \vdash c_2 : \tau \Rightarrow \tctx'', \pctx'', S'' \\ \tctx* = \tctx' \cup \tctx'' \\ \pctx* = \pctx' \lub \pctx'' \\ S* = S' \cup S''
 }
 { 
 \tctx,\pctx,S \vdash \text{if } e \texttt{ then } c_1 \text{ else } c_2 : \tau \Rightarrow \tctx*, \pctx*, S*
@@ -145,6 +141,8 @@ For now, we will assume that we only have one peripheral.
 }
 
 \end{mathpar}
+
+\sai{Typestate system ends here}
 
 
 \begin{mathpar}
