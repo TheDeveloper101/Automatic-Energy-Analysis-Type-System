@@ -63,6 +63,18 @@ For now, we will assume that we only have one peripheral.
 
 \sai{Typestate system starts here}
 
+Command typing rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, \pctx, S \vdash c: \tau \Rightarrow \tctx', \pctx', S'$}
+\end{aligned}
+$$
+
+Expression typing rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, \pctx, S \vdash e: \tau $}
+\end{aligned}
+$$
+
 \begin{mathpar}
 
 \inferrule*[left=T-Var]
