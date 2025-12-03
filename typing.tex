@@ -52,9 +52,10 @@ We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ a
 \end{mathpar}
 where the $\Vec{s_1} \lub \Vec{s_2}$ is an element-wise join. The join between two elements $s_1 \lub s_2$ is the standard notion of a lattice join, that is, 
 \(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
-the least upper bound of all the elements.
+the least upper bound of all the elements. 
 
-For now, we will assume that we only have one peripheral.
+For atomic regions, we assume the existence of a recovery system that can bring peripherals back to the states specified at the beginning of an atomic region (like Karma for example).
+
 
 \sai{Typestate system starts here}
 
@@ -102,7 +103,7 @@ $$
 
 \inferrule*[left=T-Transition]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = s_i \\ \forall i\in \{s\}, s_i \leq st
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \{s\} \\ \forall i\in \{s\}, s_i \leq st
 }
 { 
 \tctx,\pctx \vdash \text{transition}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st]
@@ -110,7 +111,7 @@ $$
 
 \inferrule*[left=T-Downgrade]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = s_i \\ \forall i\in \{s\}, s_i \hookrightarrow st \in p(D)
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \{s\} \\ \forall i\in \{s\}, s_i \hookrightarrow st \in p(D)
 }
 { 
 \tctx,\pctx \vdash \text{downgrade}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st]
@@ -197,7 +198,7 @@ $$
 
 \inferrule*[left=T-Transition]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = s_i \\ \forall i\in \{s\}, s_i \leq st \\ C = \max(\m{cost}(s_i, st))
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \{s\} \\ \forall i\in \{s\}, s_i \leq st \\ C = \max(\m{cost}(s_i, st))
 }
 { 
 \tctx,\pctx \vdash \text{transition}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
@@ -205,7 +206,7 @@ $$
 
 \inferrule*[left=T-Downgrade]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = s_i \\ \forall i\in \{s\}, s_i \hookrightarrow st \in p(D) \\ C = \max (\m{cost}(s_i, st) )
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \{s\} \\ \forall i\in \{s\}, s_i \hookrightarrow st \in p(D) \\ C = \max (\m{cost}(s_i, st) )
 }
 { 
 \tctx,\pctx \vdash \text{downgrade}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
@@ -237,11 +238,9 @@ $$
 
 \inferrule*[left=T-FunDecl]
 {
-\tctx[x : \tau_1], \pctx[p: s_1] \vdash c: \tau_2 \Rightarrow \tctx', \pctx[p : s_2] \\ \tctx', \pctx[p: s_2] \vdash e : \tau_2
+\tctx[x : \tau_1], \pctx[p: s_1] \vdash c: \tau_2 \xrightarrow{C_1} \tctx', \pctx[p : s_2] \\ \tctx', \pctx[p: s_2] \vdash e : \tau_2, C_2 \\ C = C_1 + C_2
 }
-{ \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, s_1) \rightarrow (\tau_2, s_2) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, s_1) \rightarrow (\tau_2, s_2)], \pctx
+{ \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, s_1) \rightarrow (\tau_2, s_2) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, s_1) \xrightarrow{C} (\tau_2, s_2)], \pctx
 }
 
 \end{mathpar}
-
-\sai{AARA system ends here}
