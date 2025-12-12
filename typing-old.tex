@@ -1,0 +1,244 @@
+\section{Language and Typing}
+
+We present a simple imperative language. 
+\[
+\begin{array}{lcll}
+\text{Peripheral Declarations: }p & \bnfdef & \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}, p \ \vert \ \cdot 
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Declarations: }d & \bnfdef & \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\}, d \ \vert \ \cdot
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Commands: }c & \bnfdef & \text{let } x = e & \text{(let)} \\ 
+  & \bnfalt &\text{let } x = f(e, p) & \text{(function call)} \\ & \bnfalt & \text{atomic}\{p_1:\Vec{s_1}, \dots, p_n:\Vec{s_n} \}(c) & \text{(atomic)} \\ 
+  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Expressions: }e & \bnfdef & x & \text{(variable)}  \\
+    & \bnfalt & v & \text{(value)} \\
+    & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operation)} 
+\end{array}
+\]
+Our judgments use the following additional constructs. 
+\[
+\begin{array}{llcl}
+\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau, \tctx \bnfalt \cdot
+\\ 
+\textit{Types} & \tau & \bnfdef & \text{int} \bnfalt \text{bool} \bnfalt \text{unit} \bnfalt \rho \bnfalt (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2})  
+\\
+\textit{Downgrade policy} & D & \bnfdef & s' \hookrightarrow s, D \bnfalt \cdot
+\\
+\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow \{s_i\}, \pctx \bnfalt \cdot
+\end{array}
+\]
+
+A downgrade policy $s' \hookrightarrow s$ means that a peripheral in state $s'$ can transition to state $s$ assuming that $s' > s$. 
+We also assume the existence of the cost functions 
+$\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each peripheral being in the maximum possible state. 
+We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ as follows.
+\begin{mathpar}
+\inferrule{
+    \Vec{s_3} = \Vec{s_1} \lub \Vec{s_2} \\ \pctx_3 = \pctx_1' \lub \pctx_2' \\ \m{dom}(\pctx_1') = \m{dom}(\pctx_2') 
+}
+{  p \rightarrow s_1, \pctx_1' \lub p \rightarrow s_2, \pctx_2' = p \rightarrow s_3, \pctx_3 }
+\end{mathpar}
+where the $\Vec{s_1} \lub \Vec{s_2}$ is an element-wise join. The join between two elements $s_1 \lub s_2$ is the standard notion of a lattice join, that is, 
+\(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
+the least upper bound of all the elements. 
+
+For atomic regions, we assume the existence of a recovery system that can bring peripherals back to the states specified at the beginning of an atomic region (like Karma for example).
+
+
+\sai{Typestate system starts here}
+
+Command typing rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, \pctx \vdash c: \tau \Rightarrow \tctx', \pctx'$}
+\end{aligned}
+$$
+
+Expression typing rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, \pctx \vdash e: \tau $}
+\end{aligned}
+$$
+
+\begin{mathpar}
+
+\inferrule*[left=T-Var]
+{ \tctx(x) = \tau }
+{ \tctx, \pctx \vdash x : \tau }
+
+
+\inferrule*[left=T-BinOp]
+{
+\tctx,\pctx \vdash e_1 : \tau_1 \\ \tctx,\pctx \vdash e_2 : \tau_2 \\ \text{binop} : \tau_1 \times \tau_2 \to \tau
+}
+{
+\tctx,\pctx \vdash e_1 \ \text{binop}\ e_2 : \tau
+}
+
+
+\inferrule*[left=T-Let]
+{ \tctx,\pctx \vdash e : \tau }
+{ 
+\tctx,\pctx \vdash \text{let } x = e : \text{unit} \Rightarrow \tctx[x : \tau] , \pctx
+}
+
+\inferrule*[left=T-Call]
+{
+\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \\ \tctx,\pctx \vdash e : \tau_1 \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq s_1
+}
+{
+\tctx,\pctx \vdash \text{let } x = f(e, p) : \text{unit} \Rightarrow \tctx[x : \tau_2], \pctx[p: s_2]
+}
+
+\inferrule*[left=T-Transition]
+{
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \leq st
+}
+{ 
+\tctx,\pctx \vdash \text{transition}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st]
+}
+
+\inferrule*[left=T-Downgrade]
+{
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in p(D)
+}
+{ 
+\tctx,\pctx \vdash \text{downgrade}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st]
+}
+
+\inferrule*[left=T-If]
+{
+\tctx,\pctx \vdash e : \text{bool} \\ \tctx,\pctx \vdash c_1 : \tau \Rightarrow \tctx_1, \pctx_1 \\ \tctx,\pctx \vdash c_2 : \tau \Rightarrow \tctx_2, \pctx_2 \\ \tctx^* = \tctx_1 \cup \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 
+}
+{
+\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 \Rightarrow \tctx^*, \pctx^*
+}
+
+\inferrule*[left=T-Seq]
+{
+\tctx,\pctx \vdash c_1 : \tau_1 \Rightarrow \tctx', \pctx' \\ \tctx',\pctx' \vdash c_2 : \tau_2 \Rightarrow \tctx'', \pctx''
+}
+{
+\tctx,\pctx \vdash c_1 ; c_2 : \tau_2 \Rightarrow \tctx'', \pctx''
+}
+
+\inferrule*[left=T-Atomic]
+{
+\forall i, \pctx(p_i) \subseteq \Vec{s_i} \\ \tctx,\pctx \vdash c : \tau \Rightarrow \tctx', \pctx' 
+}
+{ 
+\tctx,\pctx,S \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) : \tau \Rightarrow \tctx', \pctx'
+}
+
+\inferrule*[left=T-FunDecl]
+{
+\tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau_2 \Rightarrow \tctx', \pctx' \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2
+}
+{ \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2})], \pctx
+}
+
+\end{mathpar}
+
+\sai{Typestate system ends here}
+\newpage
+\sai{AARA system starts here}
+
+Command typing rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, \pctx \vdash c: \tau \xrightarrow{C} \tctx', \pctx'$}
+\end{aligned}
+$$
+
+Expression typing rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, \pctx \vdash e: \tau, C $}
+\end{aligned}
+$$
+
+\begin{mathpar}
+
+\inferrule*[left=T-Var]
+{ \tctx(x) = \tau }
+{ \tctx, \pctx \vdash x : \tau, C_v }
+
+
+\inferrule*[left=T-BinOp]
+{
+\tctx,\pctx \vdash e_1 : \tau_1, C_1 \\ \tctx,\pctx \vdash e_2 : \tau_2, C_2 \\ \text{binop} : \tau_1 \times \tau_2 \xrightarrow{C_b} \tau
+}
+{
+\tctx,\pctx \vdash e_1 \ \text{binop}\ e_2 : \tau, C_1 + C_2 + C_b
+}
+
+
+\inferrule*[left=T-Let]
+{ \tctx,\pctx \vdash e : \tau, C_e }
+{ 
+\tctx,\pctx \vdash \text{let } x = e : \text{unit} \xrightarrow{C_l + C_e} \tctx[x : \tau] , \pctx
+}
+
+\inferrule*[left=T-Call]
+{
+\tctx(f) = (\tau_1, \Vec{s_1}) \xrightarrow{C_f} (\tau_2, \Vec{s_2}) \\ \tctx,\pctx \vdash e : \tau_1 \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq s_1 \\ C = C_f + C_a + \max(\forall s_i \in \Vec{s}, \m{cost}(s_i, s_1))
+}
+{
+\tctx,\pctx \vdash \text{let } x = f(e, p) : \text{unit} \xrightarrow{C} \tctx[x : \tau_2], \pctx[p: s_2]
+}
+
+\inferrule*[left=T-Transition]
+{
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \leq st \\ C = \max(\forall s_i \in \Vec{s}, \m{cost}(s_i, st))
+}
+{ 
+\tctx,\pctx \vdash \text{transition}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
+}
+
+\inferrule*[left=T-Downgrade]
+{
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \{s\} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in p(D) \\ C = \max (\forall s_i \in \Vec{s}, \m{cost}(s_i, st) )
+}
+{ 
+\tctx,\pctx \vdash \text{downgrade}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
+}
+
+\inferrule*[left=T-If]
+{
+\tctx,\pctx \vdash e : \text{bool} \\ \tctx,\pctx \vdash c_1 : \tau \xrightarrow{C_1} \tctx_1, \pctx_1 \\ \tctx,\pctx \vdash c_2 : \tau \xrightarrow{C_2} \tctx_2, \pctx_2 \\ \tctx^* = \tctx_1 \cup \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ C = \max(C_1, C_2)
+}
+{
+\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 \xrightarrow{C} \tctx^*, \pctx^*
+}
+
+\inferrule*[left=T-Seq]
+{
+\tctx,\pctx \vdash c_1 : \tau_1 \xrightarrow{C'} \tctx', \pctx' \\ \tctx',\pctx' \vdash c_2 : \tau_2 \xrightarrow{C''} \tctx'', \pctx'' \\ C'_{\max} = \m{cost}(\pctx') \\ C = C' + C'' + C'_{\max}
+}
+{
+\tctx,\pctx \vdash c_1 ; c_2 : \tau_2 \xrightarrow{C} \tctx'', \pctx''
+}
+
+\inferrule*[left=T-Atomic]
+{
+\forall i, \pctx(p_i) \subseteq \Vec{s_i} \\ \tctx,\pctx \vdash c : \tau \xrightarrow{C'} \tctx', \pctx' \\ C = [\sum_{i=1}^{n} \max(\forall s'_i \in \Vec{s_i}, \m{cost(s'_i)})] + C'
+}
+{ 
+\tctx,\pctx,S \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) : \tau \Rightarrow \tctx', \pctx'
+}
+
+\inferrule*[left=T-FunDecl]
+{
+\tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau_2 \xrightarrow{C_1} \tctx', \pctx' \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, C_2 \\ C = C_1 + C_2
+}
+{ \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \xrightarrow{C} (\tau_2, \Vec{s_2})], \pctx
+}
+
+\end{mathpar}
