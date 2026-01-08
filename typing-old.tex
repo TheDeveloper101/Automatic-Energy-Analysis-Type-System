@@ -188,7 +188,7 @@ $$
 
 \inferrule*[left=T-Call]
 {
-\tctx(f) = (\tau_1, \Vec{s_1}) \xrightarrow{C_f} (\tau_2, \Vec{s_2}) \\ \tctx,\pctx \vdash e : \tau_1 \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq s_1 \\ C = C_f + C_a + \max(\forall s_i \in \Vec{s}, \m{cost}(s_i, s_1))
+\tctx(f) = (\tau_1, \Vec{s_1}) \xrightarrow{C_f} (\tau_2, \Vec{s_2}) \\ \tctx,\pctx \vdash e : \tau_1, C_a \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq s_1 \\ C = C_f + C_a 
 }
 {
 \tctx,\pctx \vdash \text{let } x = f(e, p) : \text{unit} \xrightarrow{C} \tctx[x : \tau_2], \pctx[p: s_2]

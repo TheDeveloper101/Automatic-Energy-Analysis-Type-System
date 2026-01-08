@@ -34,27 +34,68 @@ Our judgments use the following additional constructs.
 \\
 \textit{Downgrade policy} & D & \bnfdef & s' \hookrightarrow s, D \bnfalt \cdot
 \\
-\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow \{s_i\}, \pctx \bnfalt \cdot
+\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow \Vec{s}, \pctx \bnfalt \cdot
 \end{array}
 \]
 
 A downgrade policy $s' \hookrightarrow s$ means that a peripheral in state $s'$ can transition to state $s$ assuming that $s' > s$. 
 We also assume the existence of the cost functions 
 $\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each peripheral being in the maximum possible state. Lastly, we define $C(\Vec{s})$ to be the symbolic cost of executing a command, but depend on some unknown peripheral states $\Vec{s}$. 
-We define a join between the peripheral typing contexts $\pctx_1 \lub \pctx_2$ as follows.
-\begin{mathpar}
-\inferrule{
-    \Vec{s_3} = \Vec{s_1} \lub \Vec{s_2} \\ \pctx_3 = \pctx_1' \lub \pctx_2' \\ \m{dom}(\pctx_1') = \m{dom}(\pctx_2') 
-}
-{  p \rightarrow s_1, \pctx_1' \lub p \rightarrow s_2, \pctx_2' = p \rightarrow s_3, \pctx_3 }
-\end{mathpar}
-where the $\Vec{s_1} \lub \Vec{s_2}$ is an element-wise join. The join between two elements $s_1 \lub s_2$ is the standard notion of a lattice join, that is, 
-\(s_{i} \lub s_{j} = s_{j}\) if \(s_{i} < s_{j}\), where the state lattice must have a unique \(\top\) element that is
+We assume that the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements. 
 
 For atomic regions, we assume the existence of a recovery system that can bring peripherals back to the states specified at the beginning of an atomic region (like Karma for example).
 
+\sai{state inference rules start here}
+
+The intuition for the state inference rules is that peripherals start in an unconstrained state. Function declarations give us constraints on the input and output states of a peripheral. However those constraints may be more general than the actual state of a peripheral when the function is invoked at a function call. So we want to delay the cost determination of a function until it is actually called. To get more accurate cost bounds, we want to parameterize the cost in terms of the possible peripheral states, and then infer the smallest possible set of peripheral states at the call site that still satisfy the function declaration, and concretize the cost there.
+
+For atomic regions, we only care about satisfying the constraints on the possible peripheral states at the start of each region, so we do not need to have state inference rules.
+
+We have the following additional inference contexts
+\[
+\begin{array}{lcll}
+     \textit{Constraints} & \Phi & \bnfdef & \varphi, \Phi \bnfalt \cdot  \\
+    \textit{State Constraints} & \varphi & \bnfdef & \alpha = \Vec{st} \bnfalt \varphi \leq st \bnfalt \varphi \hookrightarrow st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
+    \textit{Peripheral State Context} & A & \bnfdef & p : \alpha, A \bnfalt \cdot
+\end{array}
+\]
+
+Command state inference rules are of the form $$
+\begin{aligned}
+    \fbox{$\tctx, A, \Phi \vdash c \rightarrow \Phi'$}
+\end{aligned}
+$$
+
+\begin{mathpar}
+\inferrule*[left=T-Transition\(_\textit{inf}\)] 
+{ \tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha \\ \Phi' = \Phi, \alpha \leq st
+} 
+{ 
+\tctx, A,\Phi \vdash \text{transition}(x, st) : \text{unit} \rightarrow \tctx, \Phi' 
+}
+
+\inferrule*[left=T-Downgrade\(_\textit{inf}\)]
+{
+\tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha \\ \Phi' = \Phi, \alpha \hookrightarrow st
+}
+{ 
+\tctx, A, \Phi \vdash \text{downgrade}(x, st) : \text{unit} \rightarrow \tctx, \Phi'
+}
+
+\inferrule*[left=T-If\(_\textit{inf}\)]
+{
+\tctx \vdash e : \text{bool} \\ \tctx, A, \Phi \vdash c_1 : \rightarrow  \Phi, \varphi_1 \\ \tctx, A, \Phi \vdash c_2 \rightarrow \Phi, \varphi_2 \\  \Phi^* = \Phi, \varphi_1 \vee \varphi_2 
+}
+{
+\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2: \tau \xrightarrow{C} \tctx^*, \Phi^*
+}
+\end{mathpar}
+
+\sai{state inference rules end here}
+
 \sai{AARA system starts here}
+
 
 Command typing rules are of the form $$
 \begin{aligned}
@@ -67,6 +108,7 @@ Expression typing rules are of the form $$
     \fbox{$\tctx, \pctx \vdash e: \tau, C $}
 \end{aligned}
 $$
+
 
 \begin{mathpar}
 
@@ -115,7 +157,7 @@ $$
 
 \inferrule*[left=T-Downgrade]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \{s\} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in p(D) \\ C = \max (\forall s_i \in \Vec{s}, \m{cost}(s_i, st) )
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in p(D) \\ C = \max (\forall s_i \in \Vec{s}, \m{cost}(s_i, st) )
 }
 { 
 \tctx,\pctx \vdash \text{downgrade}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
@@ -126,9 +168,10 @@ $$
 \tctx,\pctx \vdash e : \text{bool} \\ \tctx,\pctx \vdash c_1 : \tau \xrightarrow{C_1} \tctx_1, \pctx_1 \\ \tctx,\pctx \vdash c_2 : \tau \xrightarrow{C_2} \tctx_2, \pctx_2 \\ \tctx^* = \tctx_1 \cup \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ C = \max(C_1, C_2)
 }
 {
-\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 \xrightarrow{C} \tctx^*, \pctx^*
+\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2: \tau \xrightarrow{C} \tctx^*, \pctx^*
 }
-
+\end{mathpar}
+\begin{mathpar}
 \inferrule*[left=T-Seq]
 {
 \tctx,\pctx \vdash c_1 : \tau_1 \xrightarrow{C'} \tctx', \pctx' \\ \tctx',\pctx' \vdash c_2 : \tau_2 \xrightarrow{C''} \tctx'', \pctx'' \\ C'_{\max} = \m{cost}(\pctx') \\ C = C' + C'' + C'_{\max}
@@ -142,12 +185,13 @@ $$
 \forall i, \pctx(p_i) \subseteq \Vec{s_i} \\ \tctx,\pctx \vdash c : \tau \xrightarrow{C'} \tctx', \pctx' \\ C = [\sum_{i=1}^{n} \max(\forall s'_i \in \Vec{s_i}, \m{cost(s'_i)})] + C'
 }
 { 
-\tctx,\pctx,S \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) : \tau \xrightarrow{C} \tctx', \pctx'
+\tctx,\pctx \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) : \tau \xrightarrow{C} \tctx', \pctx'
 }
 
-\inferrule*[left=T-FunDecl]
+
+    \inferrule*[left=T-FunDecl]
 {
-\tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau_2 \xrightarrow{C_1} \tctx', \pctx' \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, C_2 \\ \Phi_f = C_1(\Vec{s_1}) + C_2(\Vec{s_1})
+\tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau' \xrightarrow{C_1} \tctx', \pctx' \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, C_2 \\ \Phi_f = C_1(\Vec{s_1}) + C_2(\Vec{s_1})
 }
 { \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \xrightarrow{\Phi_f} (\tau_2, \Vec{s_2})], \pctx
 }
