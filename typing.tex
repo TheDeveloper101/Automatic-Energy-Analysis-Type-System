@@ -50,7 +50,7 @@ For atomic regions, we assume the existence of a recovery system that can bring 
 
 The intuition for the state inference rules is that peripherals start in an unconstrained state. Function declarations give us constraints on the input and output states of a peripheral. However those constraints may be more general than the actual state of a peripheral when the function is invoked at a function call. So we want to delay the cost determination of a function until it is actually called. To get more accurate cost bounds, we want to parameterize the cost in terms of the possible peripheral states, and then infer the smallest possible set of peripheral states at the call site that still satisfy the function declaration, and concretize the cost there.
 
-For atomic regions, we only care about satisfying the constraints on the possible peripheral states at the start of each region, so we do not need to have state inference rules.
+For atomic regions, we only care about satisfying the constraints on the possible peripheral states at the start of each region.
 
 We have the following additional inference contexts:
 \[
@@ -84,14 +84,14 @@ We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as fo
 \begin{mathpar}
 \inferrule*[left=Context Join]
 {
-A_1(p) = \alpha_1 :: A_1' \\
-A_2(p) = \alpha_2 :: A_2' \\
-\alpha' \text{ fresh} \\ \alpha' = \alpha_1 \vee \alpha_2 \\ \m{dom}(A_1') = \m{dom}(A_2')
+A_1(p) = \alpha_1 :: A_1'(p) \\
+A_2(p) = \alpha_2 :: A_2'(p) \\
+\alpha' \text{ fresh} \\ \alpha' = \alpha_1 \vee \alpha_2 \\ A' = A_1' \uplus A_2'
 }
 {
-(\alpha_1 :: A_1) \uplus (\alpha_2 :: A_2)
+A_1 \uplus A_2
 =
-(\alpha' :: A_1 \uplus A_2)
+\alpha' :: A'(p)
 }
 
 \inferrule*[left=Empty]
