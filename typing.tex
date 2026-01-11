@@ -52,14 +52,16 @@ The intuition for the state inference rules is that peripherals start in an unco
 
 For atomic regions, we only care about satisfying the constraints on the possible peripheral states at the start of each region, so we do not need to have state inference rules.
 
-We have the following additional inference contexts
+We have the following additional inference contexts:
 \[
 \begin{array}{lcll}
      \textit{Constraints} & \Phi & \bnfdef & \varphi, \Phi \bnfalt \cdot  \\
     \textit{State Constraints} & \varphi & \bnfdef & \alpha = \Vec{st} \bnfalt \alpha \leq st \bnfalt \alpha \hookrightarrow st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
-    \textit{Peripheral State Context} & A & \bnfdef & p : \alpha, A \bnfalt \cdot
+    \textit{Peripheral State Context} & A & \bnfdef & p : [\alpha], A \bnfalt \cdot
 \end{array}
 \]
+
+We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, and $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack. 
 
 Let $\oplus$ to be the join between two sets of constraints $\Phi_1, \Phi_2$ and $\uplus$ to be the join between two peripheral state contexts $A_1, A_2$.
 
