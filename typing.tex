@@ -154,6 +154,14 @@ $$
 {
 \tctx, A, \Phi \vdash \text{let } x = f(e, p) \rightarrow A', \Phi'
 }
+
+\inferrule*[left=T-Atomic\(_\textit{inf}\)]
+{
+\forall i \in [1, \dots, n], A(p_i) = \alpha_i \\ \varphi = \bigwedge_{i = 1}^n \alpha_i \subseteq \Vec{s_i} \\ \Phi^* = \Phi \wedge \varphi \\ \tctx, A, \Phi^* \vdash c \rightarrow A', \Phi'
+}
+{
+\tctx, A, \Phi \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) \rightarrow A', \Phi'
+}
 \end{mathpar}
 
 \sai{state inference rules end here}
