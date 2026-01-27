@@ -65,22 +65,35 @@ We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ refer
 
 Let $\oplus$ to be the join between two sets of constraints $\Phi_1, \Phi_2$ and $\uplus$ to be the join between two peripheral state contexts $A_1, A_2$.
 
-We define $\Phi(x)$ to refer to all of the constraints involving peripheral $x$. Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ respectively, we define $\Phi_1 \oplus \Phi_2$ as the following.
+We define $\Phi(x)$ to refer to all of the constraints involving peripheral $x$. 
+\milijana{what does ``associated with'' mean here?}
+Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ respectively, we define $\Phi_1 \oplus \Phi_2$ as the following.
+
+\milijana{$\Phi$s are collections of constraints, not maps keyed on variables. how can you look up $\Phi(x)$? }
+
+\milijana{$ A_1(x) \neq A_2(x) $ doesn't mean that the variables are different, but that the values they map to are different (I renamed the rules to make it clear). You could also say $\alpha_1 \neq \alpha_2$, which is more direct. }
 \begin{mathpar}
-    \inferrule*[left=Same Variables]{
+    \inferrule*[left=Eq-Type-Variable]{
     A_1(x) = A_2(x) \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
     }{
     A_1, A_2 \vdash \Phi_1(x), \Phi_1' \oplus \Phi_2(x), \Phi_2' = \Phi_3(x), \Phi_3'
     }
     
-    \inferrule*[left=Different Variables]{
-    A_1(x) \neq A_2(x) \\ A_1(x) = \alpha_1 \\ A_2(x) = \alpha_2 \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \wedge (\alpha_3 = \alpha_1 \vee \alpha_2) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
+    \inferrule*[left=NotEq-Type-Variable]{
+    A_1(x) \neq A_2(x) \\ A_1(x) = \alpha_1 \\ A_2(x) = \alpha_2 \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \wedge (\alpha_3 = \alpha_1 \vee \alpha_2) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' $\milijana{fresh($\alpha_3$)?}$
     }{
     A_1, A_2 \vdash \Phi_1(x), \Phi_1' \oplus \Phi_2(x), \Phi_2' = \Phi_3(x), \Phi_3'
     }
 \end{mathpar}
+\milijana{I think I get the point of the previous rules, though they need some tweaks. For \rulename{Eq-Type-Variable}, 
+I can't quite tell what you're trying to accomplish by looking up $x$ in $\Phi$ and then joining. All constraints 
+in $\Phi$ logically connected with $\land$ anyway. Can't you just return $\Phi_1 \land \Phi_2$? }
 
+
+\milijana{Rn your rules are inconsistent with the meaning of $A(p)$, sometimes returning the whole stack and 
+sometimes just the top element. }
 We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as follows.
+\milijana{what is the difference between the $\alpha' = \alpha_1 \lor \alpha_2$ here and $\alpha_3 = \alpha_1 \lor \alpha_2$ from \rulename{NotEq-Type-Variable?}}
 \begin{mathpar}
 \inferrule*[left=Context Join]
 {
