@@ -61,17 +61,16 @@ We have the following additional inference contexts:
 \end{array}
 \]
 
-We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, and $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack. 
+We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack,  $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the entire stack. 
 
 Let $\oplus$ to be the join between two sets of constraints $\Phi_1, \Phi_2$ and $\uplus$ to be the join between two peripheral state contexts $A_1, A_2$.
 
 We define $\Phi(x)$ to refer to all of the constraints involving peripheral $x$. 
-\milijana{what does ``associated with'' mean here?}
+ A peripheral state context $A$ is associated with a set of constraints $\Phi$ if for each peripheral $p$, $A(p)$ exists and the set of constraints $\Phi(p)$ only use type variables found in $A[p]$.
 Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ respectively, we define $\Phi_1 \oplus \Phi_2$ as the following.
 
 \milijana{$\Phi$s are collections of constraints, not maps keyed on variables. how can you look up $\Phi(x)$? }
 
-\milijana{$ A_1(x) \neq A_2(x) $ doesn't mean that the variables are different, but that the values they map to are different (I renamed the rules to make it clear). You could also say $\alpha_1 \neq \alpha_2$, which is more direct. }
 \begin{mathpar}
     \inferrule*[left=Eq-Type-Variable]{
     A_1(x) = A_2(x) \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
@@ -80,7 +79,7 @@ Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ 
     }
     
     \inferrule*[left=NotEq-Type-Variable]{
-    A_1(x) \neq A_2(x) \\ A_1(x) = \alpha_1 \\ A_2(x) = \alpha_2 \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \wedge (\alpha_3 = \alpha_1 \vee \alpha_2) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' $\milijana{fresh($\alpha_3$)?}$
+    A_1(x) = \alpha_1 \\ A_2(x) = \alpha_2 \\ \alpha_1 \neq \alpha_2 \\ \alpha_3 \text{ fresh} \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \wedge (\alpha_3 = \alpha_1 \vee \alpha_2) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
     }{
     A_1, A_2 \vdash \Phi_1(x), \Phi_1' \oplus \Phi_2(x), \Phi_2' = \Phi_3(x), \Phi_3'
     }
@@ -97,12 +96,12 @@ We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as fo
 \begin{mathpar}
 \inferrule*[left=Context Join]
 {
-A_1(p) = \alpha_1 :: A_1'(p) \\
-A_2(p) = \alpha_2 :: A_2'(p) \\
-\alpha' \text{ fresh} \\ \alpha' = \alpha_1 \vee \alpha_2 \\ A' = A_1' \uplus A_2'
+A_1(p) = \alpha_1  \\
+A_2(p) = \alpha_2  \\
+\alpha' \text{ fresh} \\ \alpha' = \alpha_1 \vee \alpha_2 \\ A' = A_1'[p] \uplus A_2'[p]
 }
 {
-A_1 \uplus A_2 = \alpha' :: A'(p)
+A_1 \uplus A_2 = \alpha' :: A'[p]
 }
 
 \inferrule*[left=Empty]
@@ -126,11 +125,13 @@ Command state inference rules are of the form $$
 \end{aligned}
 $$
 
+We define $\text{In}_f(\Vec{s}))$ to be the "weakest precondition" of $\Vec{s}$ \sai{what "weakest precondition" means is still tbd}. 
 
+We also define $\Phi_f \models \alpha_{\text{out}}$ to be the concrete state assignment of $\alpha_{\text{out}}$ that satisfy $\Phi_f$ assuming such an assignment exists. \sai{not sure what an actual rigorous definition for this would be yet.}
 
 \begin{mathpar}
 \inferrule*[left=T-Transition\(_\textit{inf}\)] 
-{ \tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi, \alpha_0 \leq st, \alpha_1 = st \\ A'(x) = \alpha_1 :: A(x)
+{ \tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ A'(x) = \alpha_1 :: A(x)
 } 
 { 
 \tctx, A,\Phi \vdash \text{transition}(x, st) : \text{unit} \rightarrow A', \Phi' 
@@ -138,7 +139,7 @@ $$
 
 \inferrule*[left=T-Downgrade\(_\textit{inf}\)]
 {
-\tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi, \alpha_0 \hookrightarrow st, \alpha_1 = st \\ A'(x) = \alpha_1 :: A(x)
+\tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \hookrightarrow st \land \alpha_1 = st \\ A'(x) = \alpha_1 :: A(x)
 }
 { 
 \tctx, A, \Phi \vdash \text{downgrade}(x, st) : \text{unit} \rightarrow A', \Phi'
@@ -149,7 +150,7 @@ $$
 \tctx \vdash e : \text{bool} \\ \tctx, A, \Phi \vdash c_1 : \rightarrow A_1, \Phi_1\\ \tctx, A, \Phi \vdash c_2 \rightarrow A_2, \Phi_2 \\ \Phi^* = \Phi_1 \oplus \Phi_2 \\ A^* = A_1 \uplus A_2
 }
 {
-\tctx, A, \Phi \vdash \text{if } e \text{ then } c_1 \text{ else } c_2: \tau \xrightarrow{C} A^*, \Phi^*
+\tctx, A, \Phi \vdash \text{if } e \text{ then } c_1 \text{ else } c_2: \tau \rightarrow A^*, \Phi^*
 }
 
 \inferrule*[left=T-Seq\(_\textit{inf}\)]
@@ -162,7 +163,7 @@ $$
 
 \inferrule*[left=T-Call\(_\textit{inf}\)]
 {
-\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \\ \tctx \vdash e : \tau_1 \\ A(p) = \alpha \\ \alpha' \text{ fresh} \\ \Phi' = \Phi, \alpha \subseteq \Vec{s_1}, \alpha' \subseteq \Vec{s_2} \\ A'(p) = \alpha' :: A(p)
+\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \\ \tctx \vdash e : \tau_1 \\ A(p) = \alpha \\ \alpha' \text{ fresh} \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} \\ A'(p) = \alpha' :: A(p)
 }
 {
 \tctx, A, \Phi \vdash \text{let } x = f(e, p) \rightarrow A', \Phi'
@@ -175,6 +176,12 @@ $$
 {
 \tctx, A, \Phi \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) \rightarrow A', \Phi'
 }
+
+\inferrule*[left=T-Fun\(_\textit{inf}\)] 
+{ \alpha_{\text{in}} \text{ fresh} \\ A_0 = p : [\alpha_{\text{in}}] \\ \tctx, A_0, \cdot \vdash c \rightarrow A_f, \Phi_f \\ A_f(p) = \alpha_{\text{out}} \\ \Vec{s} = \Phi_f \models \alpha_{\text{out}} \\ \tau_f = (\tau_1, \text{In}_f(\Vec{s})) \rightarrow (\tau_2, \Vec{s})
+} 
+{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f \rightarrow A_f, \Phi_f}
+
 \end{mathpar}
 
 \sai{state inference rules end here}
