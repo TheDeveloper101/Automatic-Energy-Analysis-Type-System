@@ -78,9 +78,9 @@ Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ 
     }
     
     \inferrule*[left=NotEq-Type-Variable]{
-     \alpha_1 \neq \alpha_2 \\ \alpha_3 \text{ fresh} \\ \Phi_3|_{\alpha} = \Phi_1|_{\alpha} \wedge \Phi_2|_{\alpha} \wedge (\alpha_3 = \alpha_1 \vee \alpha_2)
+     \alpha_1 \neq \alpha_2 \\ \alpha_3 \text{ fresh} \\ \Phi_3|_{\alpha_3} = \Phi_1|_{\alpha_1} \wedge \Phi_2|_{\alpha_2} \wedge (\alpha_3 = \alpha_1 \vee \alpha_2)
     }{
-    \alpha_1, \alpha_2 \vdash \Phi_1|_{\alpha}, \Phi_1' \oplus \Phi_2|_{\alpha}, \Phi_2' = \Phi_3|_{\alpha}, \Phi_3'
+    \alpha_1, \alpha_2 \vdash \Phi_1|_{\alpha_1}, \Phi_1' \oplus \Phi_2|_{\alpha_2}, \Phi_2' = \Phi_3|_{\alpha_3}, \Phi_3'
     }
 \end{mathpar}
 
@@ -99,7 +99,7 @@ A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0],
 
 \inferrule*[left=Stack Join]
 {
- \alpha_1 = A_1(p) \\ \alpha_2 = A_2(p) \\ A_1[p] = \alpha_1 :: A_1'[p] \\ \\ A_2[p] = \alpha_2 :: A_2'[p] \\ \alpha_1, \alpha_2 \vdash \Phi_1 \oplus \Phi_2 = \Phi' \\ \Phi_1, \Phi_2 \vdash A_1'[p] \uplus A_2'[p]
+ \alpha_1 = A_1(p) \\ \alpha_2 = A_2(p) \\ A_1[p] = \alpha_1 :: A_1'[p] \\ A_2[p] = \alpha_2 :: A_2'[p] \\ \alpha_3 \text{ fresh} \\ \alpha_3 :: A'(p) \\ \alpha_1, \alpha_2 \vdash \Phi_1 \oplus \Phi_2 = \Phi' \\ \Phi_1, \Phi_2 \vdash A_1'[p] \uplus A_2'[p]
 }
 {
 \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi'
