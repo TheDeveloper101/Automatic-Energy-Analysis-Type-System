@@ -69,39 +69,40 @@ We define $\Phi(x)$ to refer to all of the constraints involving peripheral $x$.
  A peripheral state context $A$ is associated with a set of constraints $\Phi$ if for each peripheral $p$, $A(p)$ exists and the set of constraints $\Phi(p)$ only use type variables found in $A[p]$.
 Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ respectively, we define $\Phi_1 \oplus \Phi_2$ as the following.
 
-\milijana{$\Phi$s are collections of constraints, not maps keyed on variables. how can you look up $\Phi(x)$? }
 
 \begin{mathpar}
     \inferrule*[left=Eq-Type-Variable]{
-    A_1(x) = A_2(x) \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
+     \alpha_1 = \alpha_2 \\ \Phi_3|_{\alpha} = \Phi_1|_{\alpha_1} \land \Phi_2|_{\alpha_2} \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
     }{
-    A_1, A_2 \vdash \Phi_1(x), \Phi_1' \oplus \Phi_2(x), \Phi_2' = \Phi_3(x), \Phi_3'
+    \alpha_1, \alpha_2 \vdash \Phi_1|_{\alpha_1}, \Phi_1' \oplus \Phi_2|_{\alpha_2}, \Phi_2' = \Phi_3|_{\alpha_1}, \Phi_3'
     }
     
     \inferrule*[left=NotEq-Type-Variable]{
-    A_1(x) = \alpha_1 \\ A_2(x) = \alpha_2 \\ \alpha_1 \neq \alpha_2 \\ \alpha_3 \text{ fresh} \\ \Phi_3(x) = \Phi_1(x) \wedge \Phi_2(x) \wedge (\alpha_3 = \alpha_1 \vee \alpha_2) \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
+     \alpha_1 \neq \alpha_2 \\ \alpha_3 \text{ fresh} \\ \Phi_3|_{\alpha} = \Phi_1|_{\alpha} \wedge \Phi_2|_{\alpha} \wedge (\alpha_3 = \alpha_1 \vee \alpha_2)
     }{
-    A_1, A_2 \vdash \Phi_1(x), \Phi_1' \oplus \Phi_2(x), \Phi_2' = \Phi_3(x), \Phi_3'
+    \alpha_1, \alpha_2 \vdash \Phi_1|_{\alpha}, \Phi_1' \oplus \Phi_2|_{\alpha}, \Phi_2' = \Phi_3|_{\alpha}, \Phi_3'
     }
 \end{mathpar}
-\milijana{I think I get the point of the previous rules, though they need some tweaks. For \rulename{Eq-Type-Variable}, 
-I can't quite tell what you're trying to accomplish by looking up $x$ in $\Phi$ and then joining. All constraints 
-in $\Phi$ logically connected with $\land$ anyway. Can't you just return $\Phi_1 \land \Phi_2$? }
 
 
-\milijana{Rn your rules are inconsistent with the meaning of $A(p)$, sometimes returning the whole stack and 
-sometimes just the top element. }
+
+
 We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as follows.
-\milijana{what is the difference between the $\alpha' = \alpha_1 \lor \alpha_2$ here and $\alpha_3 = \alpha_1 \lor \alpha_2$ from \rulename{NotEq-Type-Variable?}}
 \begin{mathpar}
-\inferrule*[left=Context Join]
+\inferrule*[left=Top Level Join]
 {
-A_1(p) = \alpha_1  \\
-A_2(p) = \alpha_2  \\
-\alpha' \text{ fresh} \\ \alpha' = \alpha_1 \vee \alpha_2 \\ A' = A_1'[p] \uplus A_2'[p]
+A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0], \cdot \\ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' \\ \Phi_1, \Phi_2, \Phi' \vdash A_1' \uplus A_2' = A'
 }
 {
-A_1 \uplus A_2 = \alpha' :: A'[p]
+\Phi_1, \Phi_2, \cdot \vdash A_1 \uplus A_2 = A', \Phi'
+}
+
+\inferrule*[left=Stack Join]
+{
+ \alpha_1 = A_1(p) \\ \alpha_2 = A_2(p) \\ A_1[p] = \alpha_1 :: A_1'[p] \\ \\ A_2[p] = \alpha_2 :: A_2'[p] \\ \alpha_1, \alpha_2 \vdash \Phi_1 \oplus \Phi_2 = \Phi' \\ \Phi_1, \Phi_2 \vdash A_1'[p] \uplus A_2'[p]
+}
+{
+\Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi'
 }
 
 \inferrule*[left=Empty]
@@ -119,15 +120,14 @@ A_1 \uplus A_2 = \alpha' :: A'[p]
 {A_1 \uplus A_2 = A_2 \uplus A_1}
 \end{mathpar}
 
+We also define $\Phi_f \models \alpha$ to be the solution of $\alpha$ that satisfies $\Phi_f$ assuming such a solution exists. 
+
 Command state inference rules are of the form $$
 \begin{aligned}
     \fbox{$\tctx, A, \Phi \vdash c \rightarrow A', \Phi'$}
 \end{aligned}
 $$
 
-We define $\text{In}_f(\Vec{s}))$ to be the "weakest precondition" of $\Vec{s}$ \sai{what "weakest precondition" means is still tbd}. 
-
-We also define $\Phi_f \models \alpha_{\text{out}}$ to be the concrete state assignment of $\alpha_{\text{out}}$ that satisfy $\Phi_f$ assuming such an assignment exists. \sai{not sure what an actual rigorous definition for this would be yet.}
 
 \begin{mathpar}
 \inferrule*[left=T-Transition\(_\textit{inf}\)] 
@@ -178,9 +178,9 @@ We also define $\Phi_f \models \alpha_{\text{out}}$ to be the concrete state ass
 }
 
 \inferrule*[left=T-Fun\(_\textit{inf}\)] 
-{ \alpha_{\text{in}} \text{ fresh} \\ A_0 = p : [\alpha_{\text{in}}] \\ \tctx, A_0, \cdot \vdash c \rightarrow A_f, \Phi_f \\ A_f(p) = \alpha_{\text{out}} \\ \Vec{s} = \Phi_f \models \alpha_{\text{out}} \\ \tau_f = (\tau_1, \text{In}_f(\Vec{s})) \rightarrow (\tau_2, \Vec{s})
+{ \alpha_{\text{in}} \text{ fresh} \\ A = p : [\alpha_{\text{in}}] \\ \tctx, A, \cdot \vdash c \rightarrow A_f, \Phi_f \\ A_f(p) = \alpha_{\text{out}} \\ \Vec{s}_o = \Phi_f \models \alpha_{\text{out}} \\ \Vec{s}_i = \Phi_f \models \alpha_{\text{in}} \\ \tau_f = (\tau_1, \Vec{s}_i) \rightarrow (\tau_2, \Vec{s}_o)
 } 
-{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f \rightarrow A_f, \Phi_f}
+{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f }
 
 \end{mathpar}
 
