@@ -61,7 +61,7 @@ We have the following additional inference contexts:
 \end{array}
 \]
 
-We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack,  $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the entire stack. 
+We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the current stack of type variables for peripheral $p$. 
 
 Let $\oplus$ to be the join between two sets of constraints $\Phi_1, \Phi_2$ and $\uplus$ to be the join between two peripheral state contexts $A_1, A_2$.
 
@@ -99,7 +99,7 @@ A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0],
 
 \inferrule*[left=Stack Join]
 {
- \alpha_1 = A_1(p) \\ \alpha_2 = A_2(p) \\ A_1[p] = \alpha_1 :: A_1'[p] \\ A_2[p] = \alpha_2 :: A_2'[p] \\ \alpha_3 \text{ fresh} \\ \alpha_3 :: A'(p) \\ \alpha_1, \alpha_2 \vdash \Phi_1 \oplus \Phi_2 = \Phi' \\ \Phi_1, \Phi_2 \vdash A_1'[p] \uplus A_2'[p]
+ \alpha_1 = A_1(p) \\ \alpha_2 = A_2(p) \\ A_1[p] = \alpha_1 :: [\alpha^1] \\ A_2[p] = \alpha_2 :: [\alpha^2] \\ \alpha_3 \text{ fresh} \\ A'[p] = \alpha_3 :: [\alpha^3] \\ \alpha_1, \alpha_2 \vdash \Phi_1 \oplus \Phi_2 = \Phi' \\ \Phi_1, \Phi_2 \vdash [\alpha^1] \uplus [\alpha^2]
 }
 {
 \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi'
