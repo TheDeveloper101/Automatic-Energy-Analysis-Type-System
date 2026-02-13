@@ -61,7 +61,7 @@ We have the following additional inference contexts:
 \end{array}
 \]
 
-We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the current stack of type variables for peripheral $p$. 
+We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the current stack of type variables for peripheral $p$. We also define $\m{prefix}(A_1, A_2)$ to return the common prefix of two contexts $A_1, A_2$ if one exists, or $\cdot$ if none exists.
 
 Let $\oplus$ to be the join between two sets of constraints $\Phi_1, \Phi_2$ and $\uplus$ to be the join between two peripheral state contexts $A_1, A_2$.
 
@@ -69,7 +69,7 @@ We define $\Phi(x)$ to refer to all of the constraints involving peripheral $x$.
  A peripheral state context $A$ is associated with a set of constraints $\Phi$ if for each peripheral $p$, $A(p)$ exists and the set of constraints $\Phi(p)$ only use type variables found in $A[p]$.
 Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ respectively, we define $\Phi_1 \oplus \Phi_2$ as the following.
 
-
+\sai{I don't think we need these rules}
 \begin{mathpar}
     \inferrule*[left=Eq-Type-Variable]{
      \alpha_1 = \alpha_2 \\ \Phi_3|_{\alpha} = \Phi_1|_{\alpha_1} \land \Phi_2|_{\alpha_2} \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
@@ -97,12 +97,12 @@ A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0],
 \Phi_1, \Phi_2, \cdot \vdash A_1 \uplus A_2 = A', \Phi'
 }
 
-\inferrule*[left=Stack Join]
-{
- \alpha_1 = A_1(p) \\ \alpha_2 = A_2(p) \\ A_1[p] = \alpha_1 :: [\alpha^1] \\ A_2[p] = \alpha_2 :: [\alpha^2] \\ \alpha_3 \text{ fresh} \\ A'[p] = \alpha_3 :: [\alpha^3] \\ \alpha_1, \alpha_2 \vdash \Phi_1 \oplus \Phi_2 = \Phi' \\ \Phi_1, \Phi_2 \vdash [\alpha^1] \uplus [\alpha^2]
-}
-{
-\Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi'
+\sai{I am using $\sigma_1, \sigma_2$ to represent intermediate states that are between the prefix and the top of the stack}
+
+\inferrule*[left=Stack Join] 
+{ \pi = \m{prefix}(A_1[p], A_2[p]) \\ A_1[p] = \alpha_1 :: \sigma_1 :: \pi \\ A_2[p] = \alpha_2 :: \sigma_2 :: \pi \\ \alpha' \text{ fresh} \\ \Phi' = (\Phi_1 \land \Phi_2) \land \{ \alpha' = \alpha_1 \lor \alpha_2 \} \\ A'[p] = \alpha' :: \sigma_1 :: \sigma_2 :: \pi
+} 
+{ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' 
 }
 
 \inferrule*[left=Empty]
@@ -120,8 +120,24 @@ A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0],
 {A_1 \uplus A_2 = A_2 \uplus A_1}
 \end{mathpar}
 
-We also define $\Phi_f \models \alpha$ to be the solution of $\alpha$ that satisfies $\Phi_f$ assuming such a solution exists. 
+We also define $\m{solve}(\Phi)$ to a function that takes in a set of constraints $\Phi$ and returns a solution $\varepsilon$ in the form of $\alpha \rightarrow \{st\}$, where the solution satisfies the following constraints: \sai{i dont think these rules are exactly right but im trying to formalize my intuition}
+\begin{mathpar}
+    \inferrule*[left=Equal]
+    {
+    \alpha = st
+    }{
+    \Phi[\alpha := st]
+    }
 
+    \inferrule*[left=Downgrade]
+    {
+    \Phi \vdash \alpha \hookrightarrow st
+    }{
+    \forall \alpha \in \Phi|_{\alpha}, \alpha \in p(D)
+    }
+
+\end{mathpar}
+    \sai{for the downgrade rule im trying to say that if there is a constraint that $\alpha$ can downgrade to $st$, then the solution every $\alpha$ involved in constraints that reference this downgrade must be in the relevant downgrade policy.}
 Command state inference rules are of the form $$
 \begin{aligned}
     \fbox{$\tctx, A, \Phi \vdash c \rightarrow A', \Phi'$}
@@ -178,7 +194,7 @@ $$
 }
 
 \inferrule*[left=T-Fun\(_\textit{inf}\)] 
-{ \alpha_{\text{in}} \text{ fresh} \\ A = p : [\alpha_{\text{in}}] \\ \tctx, A, \cdot \vdash c \rightarrow A_f, \Phi_f \\ A_f(p) = \alpha_{\text{out}} \\ \Vec{s}_o = \Phi_f \models \alpha_{\text{out}} \\ \Vec{s}_i = \Phi_f \models \alpha_{\text{in}} \\ \tau_f = (\tau_1, \Vec{s}_i) \rightarrow (\tau_2, \Vec{s}_o)
+{ \alpha_{\text{in}} \text{ fresh} \\ A = p : [\alpha_{\text{in}}] \\ \tctx, A, \cdot \vdash c \rightarrow A_f, \Phi_f \\ A_f(p) = \alpha_{\text{out}} \\ \Vec{s}_o = \m{solve}(\Phi_f, \alpha_{\text{out}}) \\ \Vec{s}_i = \m{solve}(\Phi_f, \alpha_{\text{in}}) \\ \tau_f = (\tau_1, \Vec{s}_i) \rightarrow (\tau_2, \Vec{s}_o)
 } 
 { \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f }
 
