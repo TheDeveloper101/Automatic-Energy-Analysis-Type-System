@@ -141,8 +141,8 @@ We also define $\m{solve}(\Phi)$ to a function that takes in a set of constraint
 
 \inferrule*[left=Solve-Hook]
 {}
-{\alpha \hookrightarrow st \vdash \alpha \Downarrow \mathsf{policy}(st)}
-
+{\alpha \hookrightarrow st \vdash \alpha \Downarrow D(st)}
+\sai{im abusing notation and using D(st) to represent the set of states to the left of the downgrade policy}
 \inferrule*[left=Solve-And]
 {
 \varphi_1 \vdash \alpha \Downarrow S_1 \\
