@@ -122,22 +122,46 @@ A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0],
 
 We also define $\m{solve}(\Phi)$ to a function that takes in a set of constraints $\Phi$ and returns a solution $\varepsilon$ in the form of $\alpha \rightarrow \{st\}$, where the solution satisfies the following constraints: \sai{i dont think these rules are exactly right but im trying to formalize my intuition}
 \begin{mathpar}
-    \inferrule*[left=Equal]
-    {
-    \alpha = st
-    }{
-    \Phi[\alpha := st]
-    }
 
-    \inferrule*[left=Downgrade]
-    {
-    \Phi \vdash \alpha \hookrightarrow st
-    }{
-    \forall \alpha \in \Phi|_{\alpha}, \alpha \in p(D)
-    }
+\inferrule*[left=Solve-Empty]
+{}
+{\cdot \vdash \alpha \Downarrow \top}
 
+\inferrule*[left=Solve-Eq]
+{}
+{\alpha = \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
+
+\inferrule*[left=Solve-Leq]
+{}
+{\alpha \leq st \vdash \alpha \Downarrow \{\, s \mid s \leq st \,\}}
+
+\inferrule*[left=Solve-Subset]
+{}
+{\alpha \subseteq \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
+
+\inferrule*[left=Solve-Hook]
+{}
+{\alpha \hookrightarrow st \vdash \alpha \Downarrow \mathsf{policy}(st)}
+
+\inferrule*[left=Solve-And]
+{
+\varphi_1 \vdash \alpha \Downarrow S_1 \\
+\varphi_2 \vdash \alpha \Downarrow S_2
+}
+{
+\varphi_1 \wedge \varphi_2 \vdash \alpha \Downarrow S_1 \cap S_2
+}
+
+\inferrule*[left=Solve-Or]
+{
+\varphi_1 \vdash \alpha \Downarrow S_1 \\
+\varphi_2 \vdash \alpha \Downarrow S_2
+}
+{
+\varphi_1 \vee \varphi_2 \vdash \alpha \Downarrow S_1 \cup S_2
+}
 \end{mathpar}
-    \sai{for the downgrade rule im trying to say that if there is a constraint that $\alpha$ can downgrade to $st$, then the solution every $\alpha$ involved in constraints that reference this downgrade must be in the relevant downgrade policy.}
+
 Command state inference rules are of the form $$
 \begin{aligned}
     \fbox{$\tctx, A, \Phi \vdash c \rightarrow A', \Phi'$}
@@ -147,7 +171,7 @@ $$
 
 \begin{mathpar}
 \inferrule*[left=T-Transition\(_\textit{inf}\)] 
-{ \tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ A'(x) = \alpha_1 :: A(x)
+{ \tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ A'[x] = \alpha_1 :: A[x]
 } 
 { 
 \tctx, A,\Phi \vdash \text{transition}(x, st) : \text{unit} \rightarrow A', \Phi' 
@@ -155,7 +179,7 @@ $$
 
 \inferrule*[left=T-Downgrade\(_\textit{inf}\)]
 {
-\tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \hookrightarrow st \land \alpha_1 = st \\ A'(x) = \alpha_1 :: A(x)
+\tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \hookrightarrow st \land \alpha_1 = st \\ A'[x] = \alpha_1 :: A[x]
 }
 { 
 \tctx, A, \Phi \vdash \text{downgrade}(x, st) : \text{unit} \rightarrow A', \Phi'
@@ -163,7 +187,7 @@ $$
 
 \inferrule*[left=T-If\(_\textit{inf}\)]
 {
-\tctx \vdash e : \text{bool} \\ \tctx, A, \Phi \vdash c_1 : \rightarrow A_1, \Phi_1\\ \tctx, A, \Phi \vdash c_2 \rightarrow A_2, \Phi_2 \\ \Phi^* = \Phi_1 \oplus \Phi_2 \\ A^* = A_1 \uplus A_2
+\tctx \vdash e : \text{bool} \\ \tctx, A, \Phi \vdash c_1 : \rightarrow A_1, \Phi_1\\ \tctx, A, \Phi \vdash c_2 \rightarrow A_2, \Phi_2 \\  A^*, \Phi^* = A_1 \uplus A_2
 }
 {
 \tctx, A, \Phi \vdash \text{if } e \text{ then } c_1 \text{ else } c_2: \tau \rightarrow A^*, \Phi^*
@@ -179,7 +203,7 @@ $$
 
 \inferrule*[left=T-Call\(_\textit{inf}\)]
 {
-\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \\ \tctx \vdash e : \tau_1 \\ A(p) = \alpha \\ \alpha' \text{ fresh} \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} \\ A'(p) = \alpha' :: A(p)
+\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \\ \tctx \vdash e : \tau_1 \\ A(p) = \alpha \\ \alpha' \text{ fresh} \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} \\ A'[p] = \alpha' :: A[p]
 }
 {
 \tctx, A, \Phi \vdash \text{let } x = f(e, p) \rightarrow A', \Phi'
