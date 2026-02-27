@@ -15,7 +15,7 @@ We present a simple imperative language.
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & \text{let } x = e & \text{(let)} \\ 
   & \bnfalt &\text{let } x = f(e, p) & \text{(function call)} \\ & \bnfalt & \text{atomic}\{p_1:\Vec{s_1}, \dots, p_n:\Vec{s_n} \}(c) & \text{(atomic)} \\ 
-  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
+  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & \text{clock}( new) & \text{(clock)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
 \end{array}
 \]
 \[
@@ -63,35 +63,11 @@ We have the following additional inference contexts:
 
 We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the current stack of type variables for peripheral $p$. We also define $\m{prefix}(A_1, A_2)$ to return the common prefix of two contexts $A_1, A_2$ if one exists, or $\cdot$ if none exists.
 
-Let $\oplus$ to be the join between two sets of constraints $\Phi_1, \Phi_2$ and $\uplus$ to be the join between two peripheral state contexts $A_1, A_2$.
-
-We define $\Phi(x)$ to refer to all of the constraints involving peripheral $x$. 
- A peripheral state context $A$ is associated with a set of constraints $\Phi$ if for each peripheral $p$, $A(p)$ exists and the set of constraints $\Phi(p)$ only use type variables found in $A[p]$.
-Given the peripheral state contexts $A_1, A_2$ associated with $\Phi_1, \Phi_2$ respectively, we define $\Phi_1 \oplus \Phi_2$ as the following.
-
-\sai{I don't think we need these rules}
-\begin{mathpar}
-    \inferrule*[left=Eq-Type-Variable]{
-     \alpha_1 = \alpha_2 \\ \Phi_3|_{\alpha} = \Phi_1|_{\alpha_1} \land \Phi_2|_{\alpha_2} \\ \Phi_3' = \Phi_1' \oplus \Phi_2' 
-    }{
-    \alpha_1, \alpha_2 \vdash \Phi_1|_{\alpha_1}, \Phi_1' \oplus \Phi_2|_{\alpha_2}, \Phi_2' = \Phi_3|_{\alpha_1}, \Phi_3'
-    }
-    
-    \inferrule*[left=NotEq-Type-Variable]{
-     \alpha_1 \neq \alpha_2 \\ \alpha_3 \text{ fresh} \\ \Phi_3|_{\alpha_3} = \Phi_1|_{\alpha_1} \wedge \Phi_2|_{\alpha_2} \wedge (\alpha_3 = \alpha_1 \vee \alpha_2)
-    }{
-    \alpha_1, \alpha_2 \vdash \Phi_1|_{\alpha_1}, \Phi_1' \oplus \Phi_2|_{\alpha_2}, \Phi_2' = \Phi_3|_{\alpha_3}, \Phi_3'
-    }
-\end{mathpar}
-
-
-
-
 We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as follows.
 \begin{mathpar}
 \inferrule*[left=Top Level Join]
 {
-A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0], \cdot \\ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' \\ \Phi_1, \Phi_2, \Phi' \vdash A_1' \uplus A_2' = A'
+A_1 = p, A_1' \\ A_2 = p, A_2' \\ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' \\ \Phi_1, \Phi_2, \Phi' \vdash A_1' \uplus A_2' = A'
 }
 {
 \Phi_1, \Phi_2, \cdot \vdash A_1 \uplus A_2 = A', \Phi'
@@ -120,7 +96,7 @@ A_1 = p, A_1' \\ A_2 = p, A_2' \\ \alpha_0 \text{ fresh} \\ A' = p : [\alpha_0],
 {A_1 \uplus A_2 = A_2 \uplus A_1}
 \end{mathpar}
 
-We also define $\m{solve}(\Phi)$ to a function that takes in a set of constraints $\Phi$ and returns a solution $\varepsilon$ in the form of $\alpha \rightarrow \{st\}$, where the solution satisfies the following constraints: \sai{i dont think these rules are exactly right but im trying to formalize my intuition}
+We also define $\m{solve}(\varphi, \varepsilon)$ to a function that takes in a set of constraints $\varphi$ and the current partial solution $\varepsilon :: = \alpha \rightarrow \Vec{st}, \varepsilon$. It then returns $\varepsilon'$ which is the updated solution with the new constraints form solving $\varphi$. We have a top level function $\m{sol}(\Phi)$ which calls $\m{solve}$ on each $\varphi \in \Phi$. The solution satisfies the following constraints: \sai{i dont think these rules are exactly right but im trying to formalize my intuition}
 \begin{mathpar}
 
 \inferrule*[left=Solve-Empty]
@@ -139,10 +115,8 @@ We also define $\m{solve}(\Phi)$ to a function that takes in a set of constraint
 {}
 {\alpha \subseteq \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
 
-\inferrule*[left=Solve-Hook]
-{}
-{\alpha \hookrightarrow st \vdash \alpha \Downarrow D(st)}
-\sai{im abusing notation and using D(st) to represent the set of states to the left of the downgrade policy}
+
+
 \inferrule*[left=Solve-And]
 {
 \varphi_1 \vdash \alpha \Downarrow S_1 \\
@@ -160,6 +134,16 @@ We also define $\m{solve}(\Phi)$ to a function that takes in a set of constraint
 {
 \varphi_1 \vee \varphi_2 \vdash \alpha \Downarrow S_1 \cup S_2
 }
+
+
+\inferrule*[left=Solve]
+{
+\varphi, \Phi' = \Phi \\ \varepsilon = \m{solve}(\varphi, \cdot) \\ \Phi', \varepsilon \vdash \m{sol}(\Phi)
+}
+{
+\Phi, \cdot \vdash \m{sol}(\Phi) \Downarrow \epsilon
+}
+
 \end{mathpar}
 
 Command state inference rules are of the form $$
@@ -179,7 +163,7 @@ $$
 
 \inferrule*[left=T-Downgrade\(_\textit{inf}\)]
 {
-\tctx, A, \Phi \vdash x : \rho \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \hookrightarrow st \land \alpha_1 = st \\ A'[x] = \alpha_1 :: A[x]
+\tctx, A, \Phi \vdash x : \rho \\ s \hookrightarrow st \in x(D) \\ A(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\ A'[x] = \alpha_1 :: A[x]
 }
 { 
 \tctx, A, \Phi \vdash \text{downgrade}(x, st) : \text{unit} \rightarrow A', \Phi'
@@ -225,7 +209,167 @@ $$
 \end{mathpar}
 
 \sai{state inference rules end here}
+ 
+\sai{new AARA system starts here}
 
+We want to parameterize the costs by two things: first, costs are "parametric" in the peripheral state. We mean that rather than tracking the peripheral typestate concretely, we update the peripheral context to be $\pctx ::= p : [\alpha], \pctx \mid \cdot$. When analyzing the cost of a function, we keep the costs generic in terms of the state, but when we have a function call, then we use the state inference rules to infer the concrete state of the peripheral, and output a concrete cost for the function based on the inferred state.
+
+We also want the cost to be (actually) parametric in terms of the clock speed. What this means is that we introduce a new construct $\m{clock}(new)$ which represents updating the device clock to the new speed. We update cost from $C$ to now be $C(\alpha, f)$ to represent the cost parameterized by clock speed $f$ and potential state $\alpha$. Every time we have encounter a $\m{clock}$ expression, we create a new $f$ to represent the new speed. We assume the existence of a function $\m{infer}$ which given a type variable, can infer the concrete states to satisfy that type variable. 
+\sai{im not sure we need this, it really feels like the information we are receiving from inference comes from just standard typechecking}
+\begin{mathpar}
+
+\inferrule*[left=T-Var]
+{ \tctx(x) = \tau }
+{ \tctx,\pctx,f \vdash x : \tau, C_v(f) }
+
+
+\inferrule*[left=T-BinOp]
+{
+\tctx,\pctx,f \vdash e_1 : \tau_1, C_1 \\
+\tctx,\pctx,f \vdash e_2 : \tau_2, C_2 \\
+\text{binop} : \tau_1 \times \tau_2 \to \tau
+}
+{
+\tctx,\pctx,f \vdash e_1 \ \text{binop}\ e_2 :
+\tau,
+(C_1 + C_2)(f) 
+}
+
+
+\inferrule*[left=T-Let]
+{
+\tctx,\pctx,f \vdash e : \tau, C_e \\ C = C_e(f) + C_l(f)
+}
+{
+\tctx,\pctx,f \vdash
+\text{let } x = e :
+\text{unit}
+\xrightarrow{C}
+\tctx[x:\tau], \pctx, f
+}
+
+
+\inferrule*[left=T-Seq]
+{
+\tctx,\pctx,f \vdash c_1 :
+\tau_1
+\xrightarrow{C_1}
+\tctx',\pctx', f_1 \\ \tctx',\pctx',f_1 \vdash c_2:
+\tau_2
+\xrightarrow{C_2}
+\tctx'',\pctx'', f_2 \\ C = C_1(f_1) + C_2(f_2) + \m{cost}(\pctx)(f_2)
+}
+{
+\tctx,\pctx,f \vdash
+c_1 ; c_2 :
+\tau_2
+\xrightarrow{C}
+\tctx'',\pctx'', f_2
+}
+
+
+\inferrule*[left=T-If]
+{
+\tctx,\pctx,f \vdash e : \text{bool}, C_e
+\\
+\tctx,\pctx,f \vdash c_1 :
+\tau
+\xrightarrow{C_1}
+\tctx_1,\pctx_1, f_1
+\\
+\tctx,\pctx,f \vdash c_2 :
+\tau
+\xrightarrow{C_2}
+\tctx_2,\pctx_2, f_2
+\\
+\tctx^* = \tctx_1 \cup \tctx_2
+\\
+\pctx^* = \pctx_1 \cup \pctx_2
+\\
+C = C_e + \max(C_1, C_2) \\ f = \max(f_1, f_2)
+}
+{
+\tctx,\pctx,f \vdash
+\text{if } e \text{ then } c_1 \text{ else } c_2 :
+\tau
+\xrightarrow{C}
+\tctx^*, \pctx^*, f
+}
+
+\sai{really what i want to say is that the final f value is whatever f is associated with the cost we select}
+
+\inferrule*[left=T-Clock]
+{
+f' \text{ fresh}
+}
+{
+\tctx,\pctx,f \vdash
+\text{clock}(new) :
+\text{unit}
+\xrightarrow{}
+\tctx, \pctx, f'
+}
+
+
+\inferrule*[left=T-Transition]
+{
+\tctx(x) = \rho \\
+\pctx(x) = \alpha \\
+\Vec{s} = \m{infer}(\alpha) \\ \forall i \in [0, \dots, n], s_i \leq st \\ C = \max(\m{cost}(s_i,st))(f)
+}
+{
+\tctx,\pctx,f \vdash
+\text{transition}(x,st) :
+\text{unit}
+\xrightarrow{C}
+\tctx, \pctx[x:st], f
+}
+
+\inferrule*[left=T-Downgrade]
+{
+\tctx(x) = \rho \\
+\pctx(x) = \alpha \\
+\Vec{s} = \m{infer}(\alpha) \\ \forall i \in [0, \dots, n], s_i \hookrightarrow st \\ C = \max(\m{cost}(s_i,st))(f)
+}
+{
+\tctx,\pctx,f \vdash
+\text{downgrade}(x,st) :
+\text{unit}
+\xrightarrow{C}
+\tctx, \pctx[x:st], f
+}
+
+\inferrule*[left=T-FunDecl]
+{
+\tctx[x:\tau_1],
+\pctx[p:\Vec{s_1}], f \vdash c : \tau' \xrightarrow{C_1} \tctx', \pctx', f' \\ \pctx'(p) = \alpha_2 \\ \m{infer}(\alpha_2) = \Vec{s_2}\\ \tctx',\pctx',f' \vdash e : \tau_2, C_2 \\ C_f = C_1(\alpha_1, f) + C_2(\alpha_2, f)
+}
+{
+\tctx,\pctx,f \vdash \text{fn } f(x,p): (\tau_1,\Vec{s_1}) \rightarrow (\tau_2,\Vec{s_2})
+\{c; ret := e\} \xrightarrow \tctx[f \mapsto (\tau_1,\Vec{s_1}) \xrightarrow{\Phi_f} (\tau_2,\Vec{s_2})], \pctx,f
+}
+
+
+\inferrule*[left=T-Call]
+{
+\tctx(f)=
+(\tau_1,\Vec{s_1})
+\xrightarrow{C_f}
+(\tau_2,\Vec{s_2})
+\\
+\tctx,\pctx,f \vdash e : \tau_1, C_a \\ \pctx(p) = \alpha \\ \Vec{s} = \m{infer}(\alpha) \\ \Vec{s} \subseteq \Vec{s_1} \\ C = C_f[\Vec{s}, f] + C_a
+}
+{
+\tctx,\pctx,f \vdash
+\text{let } x = f(e,p) :
+\text{unit}
+\xrightarrow{
+C
+}
+\tctx[x:\tau_2], \pctx[p:\Vec{s_2}], f
+}
+
+\end{mathpar}
 \sai{AARA system starts here}
 
 
@@ -320,8 +464,7 @@ $$
 \tctx,\pctx \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) : \tau \xrightarrow{C} \tctx', \pctx'
 }
 
-
-    \inferrule*[left=T-FunDecl]
+\inferrule*[left=T-FunDecl]
 {
 \tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau' \xrightarrow{C_1} \tctx', \pctx' \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, C_2 \\ \Phi_f = C_1(\Vec{s_1}) + C_2(\Vec{s_1})
 }
