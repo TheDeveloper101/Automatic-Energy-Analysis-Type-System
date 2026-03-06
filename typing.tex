@@ -323,7 +323,7 @@ f' \text{ fresh}
 \tctx,\pctx,\Phi, f \vdash e : \tau_1, C_a \\ \pctx(p) = \alpha \\ \alpha' \text{ fresh} \\ \Vec{s} = \m{solve}(\Phi_f|_{\alpha_i}) \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'[p] = \alpha' :: \pctx[p] \\ C = C_f[\Vec{s}] + C_a \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2}
 }
 {
-\tctx,\pctx,f \vdash
+\tctx,\pctx, \Phi, C, f \vdash
 \text{let } x = f(e,p) :
 \text{unit}
 \xrightarrow{
