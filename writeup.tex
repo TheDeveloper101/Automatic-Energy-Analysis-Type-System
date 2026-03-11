@@ -1,4 +1,4 @@
-\documentclass[sigplan, screen, review]{acmart}
+\documentclass[sigconf, nonacm, screen, review]{acmart}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{mathpartir}
 \usepackage{listings}
@@ -18,11 +18,11 @@
 
 
 \section{Problem and Motivation}
-\quad As IoT devices become more prevalent, countless embedded systems are operating in resource-constrained environments. Many systems need a robust understanding of their energy requirements to operate safely and efficiently. However, determining these energy requirements  is challenging due to the presence of peripheral devices such as sensors, radios and actuators. These devices typically have internal state that changes based on the operations they perform, making them challenging to reason about. To account for this, energy requirements are typically calculated as the worst case energy consumption (WCEC), which represents that maximum possible energy consumed across any possible execution. When calculating the WCEC, the goal is to provide as tight of a bound as possible. However, current state of the art tools are insufficient in two major ways: (1) peripherals are either not explicitly modeled, or are modeled under restricted assumptions, and (2) existing tools require integration of external tools or invasive changes to programmer workflow.
+As IoT devices become more prevalent, countless embedded systems are operating in resource-constrained environments. Many systems need a robust understanding of their energy requirements to operate safely and efficiently. However, determining these energy requirements  is challenging due to the presence of peripheral devices such as sensors, radios and actuators. These devices typically have internal state that changes based on the operations they perform, making them challenging to reason about. To account for this, energy requirements are typically calculated as the worst case energy consumption (WCEC), which represents that maximum possible energy consumed across any possible execution. When calculating the WCEC, the goal is to provide as tight of a bound as possible. However, current state of the art tools are insufficient in two major ways: (1) peripherals are either not explicitly modeled, or are modeled under restricted assumptions, and (2) existing tools require integration of external tools or invasive changes to programmer workflow.
 
-In order to address these challenges, we utilize the notion of \textit{peripheral typestate}, a way of capturing the modes of operation for peripheral devices and representing them in the type level. We combine this with prior work on cost analysis to develop the first ever type system for analyzing the energy requirements of embedded systems.
+In order to address these challenges, we utilize the notion of \textit{peripheral typestate}, a way of capturing the modes of operation for peripheral devices and representing them in the type level. We combine this with prior work on cost analysis to develop the first ever type system for analyzing the energy requirements of embedded systems. 
 \section{Background and Related Work}
-\quad We organize related work around three pillars: WCEC analysis, peripheral typestate, and resource-aware type systems, as well as an approach that combines some of these ideas. 
+We organize related work around three pillars: WCEC analysis, peripheral typestate, and resource-aware type systems, as well as an approach that combines some of these ideas. 
 
 Our goal is to provide a tight, peripheral-aware bound on the WCEC of embedded systems. Prior work for this problem has typically followed the same high level structure: enumerate all possible runtime behaviors, and then translate to a formal constraint-based problem that can be solved with knowledge about the specific hardware that is being executed. \cite{Wagemann2022, raffeck_et_al_OASIcs_WCET_2019_4,wegener_et_al_OASIcs_WCET_2023_9, 8847394} Typically, this enumeration is done via a static analysis. An approach that stands out is \textit{WoCA} \cite{woca} which enhances this enumeration by integrating peripherals and their modes of operation. However, the analysis restricts the usage of peripherals to having one active at a time, requires custom device implementations for correctness, and does not consider processor energy costs. 
 
@@ -33,10 +33,10 @@ This motivates the notion of \textit{peripheral typestate}. Peripherals expose a
 To our knowledge, only one prior work conceptually combines the ideas of stateful devices and cost analysis: Performal \cite{performal}. Performal analyzes the latency of nodes in a distributed system by modeling them as state machines. Like peripherals, distributed nodes have complex internal state, and their behavior and transition costs depend heavily on that state. Performal provides a proof framework for deriving latency bounds by tracking both the current state and transitions between states.
 
 Our goal is to achieve something similar to Performal for embedded systems: deriving tight energy bounds by tracking peripheral state. However, rather than building an external proof framework, we integrate this analysis directly into a type system in the style of AARA, obtaining these bounds \textit{for free}.
-\vspace{-10px}
+
 \section{Approach and Uniqueness}
 \subsection{Approach Overview}
-\quad Our type system has two main goals: keeping track of peripheral state as accurately as possible, and using this information to provide WCEC bounds. Our type system achieves these goals through a novel approach to tracking peripheral typestate. Since peripheral states are represented as types, one might expect programmers to manually annotate transitions and states throughout their code. However, our type system is able to completely infer peripheral typestate, imposing no additional burden on the programmer. Our typing rules reflect this by combining state inference with traditional typechecking, using the inferred states directly for cost analysis.
+Our type system has two main goals: keeping track of peripheral state as accurately as possible, and using this information to provide WCEC bounds. Our type system achieves these goals through a novel approach to tracking peripheral typestate. Since peripheral states are represented as types, one might expect programmers to manually annotate transitions and states throughout their code. However, our type system is able to completely infer peripheral typestate, imposing no additional burden on the programmer. Our typing rules reflect this by combining state inference with traditional typechecking, using the inferred states directly for cost analysis.
 
 In order to track energy consumption accurately, we have three main categories that we need to consider: costs from executing statements of code on the processor, costs from using peripherals, and costs from active peripherals in the background. The usage of typestate helps us to reason about the second and third cost categories in particular, as peripherals use a different amount of power based on the current mode of operation. We illustrate this with the following running example.
 
@@ -81,8 +81,7 @@ The program in \ref{fig:example} models a simple task using a temperature sensor
 
 Many peripheral states obey a natural implicit ordering. For example, in order for a sensor to be initialized, it must be turned on. To encode this, we represent the typestate of a peripheral as a lattice of states, where $s_1 \leq s_2$ means that a peripheral in state $s_1$ can transition to state $s_2$ which is represented by \texttt{transition}$(p, st)$. However, peripherals also return to a state they were in previously. We model these "backwards transitions" via downgrade policies, $s_2 \hookrightarrow s_1$. These are represented in our code by \texttt{downgrade}$(p, st)$.
 
-With peripheral states formally defined, we can now describe how our type system expresses energy costs. Since the energy cost of an operation depends on the peripheral's current state, we parameterize energy expressions by peripheral state, representing unknown states symbolically using state variables $\alpha$.  The full formal grammar for symbolic energy costs is given in \ref{fig: symolic_energy_syntax}.
-\vspace{-10px}
+With peripheral states formally defined, we can now describe how our type system expresses energy costs. Since the energy cost of an operation depends on the peripheral's current state, we parameterize energy expressions by peripheral state, representing unknown states symbolically using state variables $\alpha$.  The full formal grammar for symbolic energy costs is given in \ref{fig: symolic_energy_syntax}
 \begin{figure}[h]
     \centering
    \[
@@ -94,11 +93,11 @@ With peripheral states formally defined, we can now describe how our type system
    \caption{Symbolic Energy Syntax}
    \label{fig: symolic_energy_syntax}
 \end{figure}
-\vspace{-10px}
+
 \subsection{Type System.} 
 
-\quad We present our type system on a simple imperative language which includes explicit \texttt{transition} and \texttt{downgrade} statements for performing the state transitions discussed previously. 
-\vspace{-10px}
+We present our type system on a simple imperative language which includes explicit \texttt{transition} and \texttt{downgrade} statements for performing the state transitions discussed previously. 
+
 \begin{figure}[H]
     \[
 \begin{array}{lcll}
@@ -125,9 +124,9 @@ With peripheral states formally defined, we can now describe how our type system
 \caption{Syntax}
 \label{fig: syntax}
 \end{figure}
-\vspace{-10px}
+
 Our type system uses the following additional constructs: 
-% \vspace{-10px}
+
 \[
 \begin{array}{llcl}
 \textit{Typing Context} & \tctx \bnfdef \ x \rightarrow \tau, \tctx \bnfalt \cdot
@@ -139,7 +138,7 @@ Our type system uses the following additional constructs:
 \textit{Peripheral Context} & \pctx \bnfdef \  p \rightarrow [\alpha], \pctx \bnfalt \cdot
 \end{array}
 \]
-\vspace{-20px}$ $ \\
+
 
 The peripheral context $\pctx$ maps peripherals to a \textit{stack} of state variables $[\alpha]$. To motivate this mapping, we can consider the original example introduced earlier. When we analyze the \texttt{downgrade} statement in the \texttt{log\_data} function, we have two possible downgrade transitions to consider: $\m{Idle} \hookrightarrow \m{Off}$ and $\m{Measure} \hookrightarrow \m{Off}$. However, in the \texttt{main} function, we first encounter a transition of the temperature sensor to the \texttt{Idle} state. Therefore, when the \texttt{log\_data} function is called, we know exactly what downgrade policy will be invoked. 
 
@@ -212,7 +211,7 @@ c_1 ; c_2 :
     \small
 
 \end{mathpar} 
-\vspace{-12px}  
+  
 
 \textsc{T-Seq} is our primary rule for composing costs. While we can simply thread the cost through, we also need to consider the background cost of any active peripherals that are not executing an operation. We represent this background cost by $\m{cost}(\pctx)$, which is a shorthand for the summation of the current state variable of each active peripheral.
 
@@ -224,7 +223,7 @@ c_1 ; c_2 :
 
 For any cost expression that has not been concretized after analyzing all the functions, we concretize it to the highest state that respects all of it's constraints. In the running example, the very first transition in \texttt{main} will not be concretized since it isn't called anywhere, so we set $\alpha_1 = \texttt{Off}$.
 \section{Ongoing Evaluation and Implementation}
-\quad While we are effectively able to model stateful devices and processors, a significant source of processor energy cost stems from clock speed changes triggered by peripheral operations. Our primary next steps are to enhance our analysis to account for varying clock speeds imposed by these operations. We include $\m{clock}()$ as a language construct to signal to the type system that the processor clock speed changes at this point. We can use this to separate programs into regions which are determined by a static clock speed. Then we can build up cost expressions for each region, and combine them together to create a \textit{symbolic energy property}. A symbolic energy property combines cost expressions across clock speed regions, capturing the total energy cost with varying clock speed. Also, we are currently implementing this type system within the Abacus framework using Rust's proc-macros system \cite{rust_procedural_macros_reference}. We aim to integrate with standard peripherals and the Tock Real Time Operating System \cite{Levy2017-ii} to test the viability of our approach with real embedded system hardware. 
+While we are effectively able to model stateful devices and processors, a significant source of processor energy cost stems from clock speed changes triggered by peripheral operations. Our primary next steps are to enhance our analysis to account for varying clock speeds imposed by these operations. We include $\m{clock}()$ as a language construct to signal to the type system that the processor clock speed changes at this point. We can use this to separate programs into regions which are determined by a static clock speed. Then we can build up cost expressions for each region, and combine them together to create a \textit{symbolic energy property}. A symbolic energy property combines cost expressions across clock speed regions, capturing the total energy cost with varying clock speed. Also, we are currently implementing this type system within the Abacus framework using Rust's proc-macros system \cite{rust_procedural_macros_reference}. We aim to integrate with standard peripherals and the Tock Real Time Operating System \cite{Levy2017-ii} to test the viability of our approach with real embedded system hardware. 
 
 \bibliographystyle{plain}
 \bibliography{ref}
