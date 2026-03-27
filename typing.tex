@@ -15,7 +15,7 @@ We present a simple imperative language.
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & \text{let } x = e & \text{(let)} \\ 
   & \bnfalt &\text{let } x = f(e, p) & \text{(function call)} \\ & \bnfalt & \text{atomic}\{p_1:\Vec{s_1}, \dots, p_n:\Vec{s_n} \}(c) & \text{(atomic)} \\ 
-  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & \text{clock}( new) & \text{(clock)} \\ & \bnfalt & \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n & \text{(match)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
+  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & \text{clock} & \text{(clock update)} \\ & \bnfalt & \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n & \text{(match)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
 \end{array}
 \]
 \[
@@ -45,7 +45,138 @@ We assume that the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements. 
 
 For atomic regions, we assume the existence of a recovery system that can bring peripherals back to the states specified at the beginning of an atomic region (like Karma for example).
+ 
+\sai{new AARA system starts here}
 
+We want to parameterize the costs by two things: first, costs are "parametric" in the peripheral state. We mean that rather than tracking the peripheral typestate concretely, we update the peripheral context to be $\pctx ::= p : [\alpha], \pctx \mid \cdot$. When analyzing the cost of a function, we keep the costs generic in terms of the state, but when we have a function call, then we use the state inference rules to infer the concrete state of the peripheral, and output a concrete cost for the function based on the inferred state.
+
+We also want the cost to be (actually) parametric in terms of the clock speed. What this means is that we introduce a new construct $\m{clock}$ which represents updating the device clock to the new speed. Rather than just representing cost expressions on their own, we instead represent them as $\Vec{f}.[C]$, where $\Vec{f}$ is the collection of clock speeds where the cost expression $C$ holds. 
+
+We have the following grammar for defining cost expressions:
+\[
+\begin{array}{lcll}
+     \text{Cost expression} & C  \bnfdef & C(p : st) & \text{(state cost)}  \\ & \bnfalt & C(p : (st, st')) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st)) & \text{(non-concrete transition cost)} \\
+     & \bnfalt & C(p : \alpha) & \text{(non-concrete cost)} \\ & \bnfalt & C_1 + C_2 & \text{(plus)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)}
+\end{array}
+\]
+We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx) := \sum_{p \in \pctx} C(p : \alpha)$ aka the sum of all of the peripherals in their current state variables. $P$ is the collection of all of the cost expressions in our program under clock speeds $\Vec{f}$, which we refer to as the current cost property. $$P ::= \Vec{f}.[C], P' \mid \cdot$$. We write $P[\Vec{st}]$ to be the concretization of all of the $\alpha_i$ in $P$ with $\Vec{s}$ if possible. \sai{idk how to say this formally but it should apply to every cost expression seen so far} Also, we assume that $\m{max}(P_1, P_2)$ is well defined. Additionally, we define $P_1 \oplus P_2$ as follows, where we assume the existence of the function $\m{prefix}(P_1, P_2)$ that returns the common prefix of $P_1, P_2$
+\begin{mathpar}
+    \inferrule*[left=Property Join]
+    {
+    P_{pre} = \m{prefix}(P_1, P_2) \\ P_1 = P_{1-t}, P_{pre} \\ P_2 = P_{2-t}, P_{pre} \\ P_{1-t} = P_{1-f}, P_{1-i} \\ P_{2-t} = P_{2-f}, P_{2-i}  \\ P_{1-f} = \Vec{f_1}.[C_1] \\ P_{2-f} = \Vec{f_2}.[C_2] \\ \Vec{f} = \Vec{f_1} \cup \Vec{f_2} \\ P^* = \Vec{f}.[\cdot] \\ P = P^*, \m{max}(P_{1-t}, P_{2-t}), P_{pre}
+    }{
+    P_1 \oplus P_2 = P
+    }
+\end{mathpar}
+Our typing judgment is of the form: 
+$$ \begin{aligned}
+    \fbox{\tctx, \pctx, \Phi, P \vdash c \rightarrow \tctx', \pctx', \Phi', P'}
+\end{aligned} $$
+
+\begin{mathpar}
+
+\inferrule*[left=T-Seq]
+{
+\tctx,\pctx,f \vdash c_1 :
+\tau_1
+\xrightarrow{C_1}
+\tctx',\pctx', f_1 \\ \tctx',\pctx',f_1 \vdash c_2:
+\tau_2
+\xrightarrow{C_2}
+\tctx'',\pctx'', f_2 \\ C = C_1(f_1) + C_2(f_2) + \m{cost}(\pctx)(f_2)
+}
+{
+\tctx,\pctx,f \vdash
+c_1 ; c_2 :
+\tau_2
+\xrightarrow{C}
+\tctx'',\pctx'', f_2
+}
+
+
+\inferrule*[left=T-If]
+{
+\tctx,\pctx,f \vdash e : \text{bool}, C_e
+\\
+\tctx,\pctx,\Phi, P \vdash c_1 :
+\tau
+\rightarrow
+\tctx_1,\pctx_1, \Phi_1, P_1
+\\
+\tctx,\pctx,\Phi, P \vdash c_2 :
+\tau
+\rightarrow
+\tctx_2,\pctx_2, \Phi_2, P_2
+\\
+\tctx^* = \tctx_1 \cup \tctx_2
+\\
+\pctx^*, \Phi^* = \pctx_1 \uplus \pctx_2
+\\ P^* = P_1 \oplus P_2
+}
+{
+\tctx,\pctx,\Phi, P \vdash
+\text{if } e \text{ then } c_1 \text{ else } c_2 :
+\tau
+\rightarrow
+\tctx^*, \pctx^*, \Phi^*, P^*
+}
+
+\sai{$\pctx_1 \uplus \pctx_2$ is defined the exact same way from the state inference rules.}
+
+\inferrule*[left=T-Clock]
+{
+f' \text{ fresh} \\ P' = f'.[\cdot], P
+}
+{
+\tctx,\pctx, \Phi, P \vdash
+\text{clock} :
+\text{unit}
+\xrightarrow{}
+\tctx,\pctx, \Phi, P'
+}
+
+
+\inferrule*[left=T-Transition] 
+{ \tctx, \pctx, \Phi, C \vdash x : \rho \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ P = \Vec{f}.[C], P^* \\ P' = \Vec{f}.[C + C(p : (\alpha_0, st))], P^*
+} 
+{ 
+\tctx, \pctx,\Phi, P \vdash \text{transition}(x, st) : \text{unit} \rightarrow \tctx, \pctx', \Phi', P' 
+}
+
+\inferrule*[left=T-Downgrade]
+{
+\tctx, \pctx, \Phi, P \vdash x : \rho \\ s \hookrightarrow st \in x(D) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ P = \Vec{f}.[C], P^* \\ P' = \Vec{f}.[C + C(p : (\alpha_0, st))], P^*
+}
+{
+\tctx,\pctx, \Phi, P \vdash
+\text{downgrade}(x,st) :
+\text{unit}
+\rightarrow
+\tctx, \pctx', \Phi',P'
+}
+
+\inferrule*[left=T-FunDecl] 
+{ \alpha_{\text{in}} \text{ fresh} \\ \pctx = p : [\alpha_{\text{i}}] \\ \tctx, \pctx, \cdot, \cdot \vdash c \rightarrow \pctx_f, \Phi_f, P'_f \\ \pctx_f(p) = \alpha_{\text{o}} \\ \Vec{st} = \m{solve}(\Phi_f \setminus \Phi_f|_{\alpha_i}) \\ P_f = P'_f[\Vec{st}] \\ \Vec{s_1} = \m{solve}(\Phi_f|_{\alpha_{\text{i}}}) \\ \Vec{s_2} = \m{solve}(\Phi_f|_{\alpha_{\text{o}}}) \\ \tau_f = \tau_1 \rightarrow \tau_2
+} 
+{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, P_f, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2} }
+
+\inferrule*[ left=T-Call]
+{
+\tctx(f)=
+\tau_1 \rightarrow \tau_2, P_f, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2}
+\\ \alpha = \pctx(p) \\ \m{rename}(\Phi_f|_{\alpha_i}, \alpha) \\ P = \Vec{f}.[C], P^* \\
+\tctx,\pctx,\Phi, P \vdash e : \tau_1, C_a \\ \Vec{f}.[C + C_a], P^* = P_1 \\ \alpha' \text{ fresh} \\ \Vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'[p] = \alpha' :: \pctx[p] \\ P' = P_f[\Vec{s}], P_1 \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} 
+}
+{
+\tctx,\pctx, \Phi, P \vdash
+\text{let } x = f(e,p) :
+\text{unit}
+\rightarrow
+\tctx[x:\tau_2], \pctx', \Phi', P'
+}
+
+\end{mathpar}
+\newpage
 \sai{state inference rules start here}
 
 The intuition for the state inference rules is that peripherals start in an unconstrained state. Function declarations give us constraints on the input and output states of a peripheral. However those constraints may be more general than the actual state of a peripheral when the function is invoked at a function call. So we want to delay the cost determination of a function until it is actually called. To get more accurate cost bounds, we want to parameterize the cost in terms of the possible peripheral states, and then infer the smallest possible set of peripheral states at the call site that still satisfy the function declaration, and concretize the cost there.
@@ -209,130 +340,7 @@ $$
 \end{mathpar}
 
 \sai{state inference rules end here}
- 
-\sai{new AARA system starts here}
-
-We want to parameterize the costs by two things: first, costs are "parametric" in the peripheral state. We mean that rather than tracking the peripheral typestate concretely, we update the peripheral context to be $\pctx ::= p : [\alpha], \pctx \mid \cdot$. When analyzing the cost of a function, we keep the costs generic in terms of the state, but when we have a function call, then we use the state inference rules to infer the concrete state of the peripheral, and output a concrete cost for the function based on the inferred state.
-
-We also want the cost to be (actually) parametric in terms of the clock speed. What this means is that we introduce a new construct $\m{clock}(new)$ which represents updating the device clock to the new speed. We update cost from $C$ to now be $C(\alpha, f)$ to represent the cost parameterized by clock speed $f$ and potential state $\alpha$. Every time we have encounter a $\m{clock}$ expression, we create a new $f$ to represent the new speed. We assume the existence of a function $\m{infer}$ which given a type variable, can infer the concrete states to satisfy that type variable. 
-\sai{im not sure we need this, it really feels like the information we are receiving from inference comes from just standard typechecking}
-
-We have the following grammar for defining cost expressions:
-\[
-\begin{array}{lcll}
-     \text{Cost expression} & C  \bnfdef & C(p : st, f) & \text{(state cost)}  \\ & \bnfalt & C(p : (st, st'), f) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st), f) & \text{(non-concrete transition cost)} \\
-     & \bnfalt & C(p : \alpha, f) & \text{(non-concrete cost)} \\ & \bnfalt & \m{max}(C_1, C_2) & \text{(max)} \\ & \bnfalt & C_1 + C_2 & \text{(plus)} \\ & \bnfalt & C_1 \oplus C_2 & \text{(lazy plus)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)}
-\end{array}
-\]
-In order for $\m{max}(C_1, C_2)$ to make sense, we assume that cost expressions have some sort of order to them. We treat cost expressions as symbolic undetermined expressions that can later be made concrete with either measurements, random variables, or something else. We define $\m{cost}(\pctx) := \bigoplus_{p \in \pctx} C(p : \alpha, f)$ aka the lazy sum of all of the peripherals in their current state variables. 
-\begin{mathpar}
-
-\inferrule*[left=T-Seq]
-{
-\tctx,\pctx,f \vdash c_1 :
-\tau_1
-\xrightarrow{C_1}
-\tctx',\pctx', f_1 \\ \tctx',\pctx',f_1 \vdash c_2:
-\tau_2
-\xrightarrow{C_2}
-\tctx'',\pctx'', f_2 \\ C = C_1(f_1) + C_2(f_2) + \m{cost}(\pctx)(f_2)
-}
-{
-\tctx,\pctx,f \vdash
-c_1 ; c_2 :
-\tau_2
-\xrightarrow{C}
-\tctx'',\pctx'', f_2
-}
-
-
-\inferrule*[left=T-If]
-{
-\tctx,\pctx,f \vdash e : \text{bool}, C_e
-\\
-\tctx,\pctx,f \vdash c_1 :
-\tau
-\xrightarrow{C_1}
-\tctx_1,\pctx_1, f_1
-\\
-\tctx,\pctx,f \vdash c_2 :
-\tau
-\xrightarrow{C_2}
-\tctx_2,\pctx_2, f_2
-\\
-\tctx^* = \tctx_1 \cup \tctx_2
-\\
-\pctx^* = \pctx_1 \cup \pctx_2
-\\
-C = C_e + \max(C_1, C_2) \\ f = \max(f_1, f_2)
-}
-{
-\tctx,\pctx,f \vdash
-\text{if } e \text{ then } c_1 \text{ else } c_2 :
-\tau
-\xrightarrow{C}
-\tctx^*, \pctx^*, f
-}
-
-\sai{really what i want to say is that the final f value is whatever f is associated with the cost we select}
-
-\inferrule*[left=T-Clock]
-{
-f' \text{ fresh}
-}
-{
-\tctx,\pctx, C, \Phi, f \vdash
-\text{clock}(new) :
-\text{unit}
-\xrightarrow{}
-\tctx, \pctx, C, \Phi, f'
-}
-
-
-\inferrule*[left=T-Transition] 
-{ \tctx, \pctx, \Phi, C, f \vdash x : \rho \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C + C(p : (\alpha_0, st), f)
-} 
-{ 
-\tctx, \pctx,\Phi, C, f \vdash \text{transition}(x, st) : \text{unit} \rightarrow \tctx, \pctx', \Phi', C', f 
-}
-
-\inferrule*[left=T-Downgrade]
-{
-\tctx, \pctx, \Phi, C, f \vdash x : \rho \\ s \hookrightarrow st \in x(D) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C + C(p : (\alpha_0, st), f)
-}
-{
-\tctx,\pctx, \Phi, C, f \vdash
-\text{downgrade}(x,st) :
-\text{unit}
-\rightarrow
-\tctx, \pctx', \Phi', C', f
-}
-
-\inferrule*[left=T-FunDecl] 
-{ \alpha_{\text{in}} \text{ fresh} \\ \pctx = p : [\alpha_{\text{i}}] \\ \tctx, \pctx \vdash c \rightarrow \pctx_f, \Phi_f, C_f, f \\ \pctx_f(p) = \alpha_{\text{o}} \\ \Vec{st} = \m{solve}(\Phi_f \setminus \Phi_f|_{\alpha_i}) \\ C = C_f[\Vec{st}] \\ \Vec{s_1} = \m{solve}(\Phi_f|_{\alpha_{\text{i}}}) \\ \Vec{s_2} = \m{solve}(\Phi_f|_{\alpha_{\text{o}}}) \\ \tau_f = (\tau_1, \Vec{s_1}) \xrightarrow{C, \Phi_f|_{\alpha_i}} (\tau_2, \Vec{s_2})
-} 
-{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f }
-
-\inferrule*[left=T-Call]
-{
-\tctx(f)=
-(\tau_1,\Vec{s_1})
-\xrightarrow{C, \Phi_f|_{\alpha_i}}
-(\tau_2,\Vec{s_2})
-\\
-\tctx,\pctx,\Phi, f \vdash e : \tau_1, C_a \\ \pctx(p) = \alpha \\ \alpha' \text{ fresh} \\ \Vec{s} = \m{solve}(\Phi_f|_{\alpha_i}) \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'[p] = \alpha' :: \pctx[p] \\ C = C_f[\Vec{s}] + C_a \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2}
-}
-{
-\tctx,\pctx, \Phi, C, f \vdash
-\text{let } x = f(e,p) :
-\text{unit}
-\xrightarrow{
-C
-}
-\tctx[x:\tau_2], \pctx', \Phi', C', f
-}
-
-\end{mathpar}
+\newpage
 \sai{AARA system starts here}
 
 
