@@ -50,129 +50,162 @@ For atomic regions, we assume the existence of a recovery system that can bring 
 
 We want to parameterize the costs by two things: first, costs are "parametric" in the peripheral state. We mean that rather than tracking the peripheral typestate concretely, we update the peripheral context to be $\pctx ::= p : [\alpha], \pctx \mid \cdot$. When analyzing the cost of a function, we keep the costs generic in terms of the state, but when we have a function call, then we use the state inference rules to infer the concrete state of the peripheral, and output a concrete cost for the function based on the inferred state.
 
-We also want the cost to be (actually) parametric in terms of the clock speed. What this means is that we introduce a new construct $\m{clock}$ which represents updating the device clock to the new speed. Rather than just representing cost expressions on their own, we instead represent them as $\Vec{f}.[C]$, where $\Vec{f}$ is the collection of clock speeds where the cost expression $C$ holds. 
-
 We have the following grammar for defining cost expressions:
 \[
 \begin{array}{lcll}
-     \text{Cost expression} & C  \bnfdef & C(p : st) & \text{(state cost)}  \\ & \bnfalt & C(p : (st, st')) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st)) & \text{(non-concrete transition cost)} \\
-     & \bnfalt & C(p : \alpha) & \text{(non-concrete cost)} \\ & \bnfalt & C_1 + C_2 & \text{(plus)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)}
+     \text{Cost expression} & C  \bnfdef & C(f) & \text{(command cost)} \\ & \bnfalt & C(p : st, f) & \text{(state cost)} \\ & \bnfalt & C(p : (st, st'), f) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st), f) & \text{(non-concrete transition cost)} \\
+     & \bnfalt & C(p : \alpha, f) & \text{(non-concrete cost)} \\ & \bnfalt & C_1 + C_2 & \text{(plus)} \\ & \bnfalt & \m{max}(C_1, C_2) & \text{(max)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)}
 \end{array}
 \]
-We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx) := \sum_{p \in \pctx} C(p : \alpha)$ aka the sum of all of the peripherals in their current state variables. $P$ is the collection of all of the cost expressions in our program under clock speeds $\Vec{f}$, which we refer to as the cost property. $$P ::= \Vec{f}.[C], P' \mid \cdot$$ We write $P[\Vec{st}]$ to be the concretization of all of the $\alpha_i$ in $P$ with $\Vec{s}$ if possible. \sai{idk how to say this formally but it should apply to every cost expression seen so far} Also, we assume that $\m{max}(P_1, P_2)$ is well defined. Additionally, we define $P_1 \oplus P_2$ as follows, where we assume the existence of the function $\m{prefix}(P_1, P_2)$ that returns the common prefix of $P_1, P_2$
+We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx) := \sum_{p \in \pctx} C(p : \alpha)$ aka the sum of all of the peripherals in their current state variables. We have the following rule for joining peripheral contexts:
+
 \begin{mathpar}
-    \inferrule*[left=Property Join]
+\inferrule*[left=Top Level Join]
+{
+\pctx_1 = p, \pctx_1' \\ \pctx_2 = p, \pctx_2' \\ \Phi_1, \Phi_2 \vdash \pctx_1[p] \uplus \pctx_2[p] = \pctx'[p], \Phi' \\ \Phi_1, \Phi_2, \Phi' \vdash \pctx_1' \uplus \pctx_2' = \pctx'
+}
+{
+\Phi_1, \Phi_2, \cdot \vdash \pctx_1 \uplus \pctx_2 = \pctx', \Phi'
+}
+
+\inferrule*[left=Stack Join] 
+{ \pi = \m{prefix}(\pctx_1[p], \pctx_2[p]) \\ \pctx_1[p] = \alpha_1 :: \sigma_1 :: \pi \\ \pctx_2[p] = \alpha_2 :: \sigma_2 :: \pi \\ \alpha' \text{ fresh} \\ \Phi' = (\Phi_1 \land \Phi_2) \land \{ \alpha' = \alpha_1 \lor \alpha_2 \} \\ \pctx'[p] = \alpha' :: \sigma_1 :: \sigma_2 :: \pi
+} 
+{ \Phi_1, \Phi_2 \vdash \pctx_1[p] \uplus \pctx_2[p] = \pctx'[p], \Phi' 
+}
+
+\inferrule*[left=Empty]
+{  }
+{
+\cdot \uplus \cdot = \cdot
+}
+
+\inferrule*[left=One Side Empty]
+{ }
+{\pctx_1 \uplus \cdot = \pctx_1}
+
+\inferrule*[left=Symmetry]
+{ }
+{\pctx_1 \uplus \pctx_2 = \pctx_2 \uplus \pctx_1}
+\end{mathpar}
+
+We want to add support for asynchronous peripherals and interrupts. The key intuition is that asynchronous peripherals behave really similarly to named effects, and interrupts behave similarly to effect handlers. We extend our language's commands to include the following:
+\[
+\begin{array}{lcll}
+\text{Commands: }c & \bnfdef & \dots \\ 
+  & \bnfalt &\text{let } h = \text{async}(p) \ \{c\} & \text{(async peripheral operation)} \\ & \bnfalt & \text{await } h & \text{(await)}
+\end{array}
+\]
+where $h$ is a "handle" and is equal to $(p, \pctx_p, \Phi_p, C_p, f_p)$.
+The typing rules for these additional commands are as follows:
+
+\begin{mathpar}
+    \inferrule*[left=T-AsyncFun]
     {
-    P_{pre} = \m{prefix}(P_1, P_2) \\ P_1 = P_{1-t}, P_{pre} \\ P_2 = P_{2-t}, P_{pre} \\ P_{1-t} = P_{1-f}, P_{1-i} \\ P_{2-t} = P_{2-f}, P_{2-i}  \\ P_{1-f} = \Vec{f_1}.[C_1] \\ P_{2-f} = \Vec{f_2}.[C_2] \\ \Vec{f} = \Vec{f_1} \cup \Vec{f_2} \\ P^* = \Vec{f}.[\cdot] \\ P = P^*, \m{max}(P_{1-t}, P_{2-t}), P_{pre}
-    }{
-    P_1 \oplus P_2 = P
+    \pctx(p) = \alpha_i \\ \tctx, p : [\alpha_i], \Phi|_p, \cdot, f \vdash c \rightarrow \tctx_a, \pctx_a, \Phi_a, C_a, f_a \\ \pctx' = \pctx \setminus \pctx|_p \\ \Phi' = \Phi \setminus \Phi|_p \\ \tctx' = \tctx, h: \texttt{Handle}(p, \pctx_p, \Phi_p, C_p, f_p) \\ C' = C + C_{\text{async spawn cost}}
+    }
+    {
+    \tctx, \pctx, \Phi, C, f \vdash \text{let } h = \text{async}(p) \ \{c\} : \tau  \rightarrow \tctx', \pctx', \Phi', C', f
+    }
+
+    \inferrule*[left=T-Await]
+    {
+    \tctx(h) = \texttt{Handle}(p, \pctx_a, \Phi_a, C_a, f_a) \\ p \notin \pctx \\ \pctx' = \pctx \cup \pctx_a \\ \Phi' = \Phi \land \Phi_a \\ C' = C + C_a(f_a) + \m{cost}(\pctx)(f) \\ f' = f \cup f_a
+    }
+    {
+    \tctx, \pctx, \Phi, C, f \vdash \text{await } h \rightarrow \tctx', \pctx', \Phi', C', f'
     }
 \end{mathpar}
+
 Our typing judgment is of the form: 
 $$ \begin{aligned}
-    \fbox{\tctx, \pctx, \Phi, P \vdash c \rightarrow \tctx', \pctx', \Phi', P'}
+    \fbox{$\tctx, \pctx, \Phi, C, f \vdash c \rightarrow \tctx', \pctx', \Phi', C', f'$}
 \end{aligned} $$
-
 \begin{mathpar}
-
 \inferrule*[left=T-Seq]
 {
-\tctx,\pctx,f \vdash c_1 :
-\tau_1
-\xrightarrow{C_1}
-\tctx',\pctx', f_1 \\ \tctx',\pctx',f_1 \vdash c_2:
-\tau_2
-\xrightarrow{C_2}
-\tctx'',\pctx'', f_2 \\ C = C_1(f_1) + C_2(f_2) + \m{cost}(\pctx)(f_2)
+\tctx,\pctx,\Phi,f,C \vdash c_1 \rightarrow \tctx',\pctx',\Phi',f_1, C' \\
+\tctx',\pctx',\Phi',C', f' \vdash c_2 \rightarrow \tctx'',\pctx'',\Phi'', C'', f'' \\ C_2 = C' + C'' + \m{cost}(\pctx)(f)
 }
 {
-\tctx,\pctx,f \vdash
-c_1 ; c_2 :
-\tau_2
-\xrightarrow{C}
-\tctx'',\pctx'', f_2
+\tctx,\pctx,\Phi,f,C \vdash c_1\,;\,c_2 \rightarrow \tctx'',\pctx'',\Phi'', C_2, f_2
 }
-
 
 \inferrule*[left=T-If]
 {
-\tctx,\pctx,f \vdash e : \text{bool}, C_e
-\\
-\tctx,\pctx,\Phi, P \vdash c_1 :
-\tau
-\rightarrow
-\tctx_1,\pctx_1, \Phi_1, P_1
-\\
-\tctx,\pctx,\Phi, P \vdash c_2 :
-\tau
-\rightarrow
-\tctx_2,\pctx_2, \Phi_2, P_2
-\\
-\tctx^* = \tctx_1 \cup \tctx_2
-\\
-\pctx^*, \Phi^* = \pctx_1 \uplus \pctx_2
-\\ P^* = P_1 \oplus P_2
+\tctx,\pctx,f \vdash e : \text{bool}, C_e(f) \\
+\tctx,\pctx,\Phi,C, f \vdash c_1 \rightarrow \tctx_1,\pctx_1,\Phi_1, C_1, f_1 \\
+\tctx,\pctx,\Phi, C, f \vdash c_2 \rightarrow \tctx_2, \pctx_2, \Phi_2, C_2, f_2 \\
+\tctx^* = \tctx_1 \cup \tctx_2 \\
+\pctx^*, \Phi^* = \pctx_1 \uplus \pctx_2 \\ C^* = \m{max}(C_1(f_1), C_2(f_2)) + C_e
 }
 {
-\tctx,\pctx,\Phi, P \vdash
-\text{if } e \text{ then } c_1 \text{ else } c_2 :
-\tau
+\tctx,\pctx,\Phi, C, f \vdash
+\text{if } e \text{ then } c_1 \text{ else } c_2
 \rightarrow
-\tctx^*, \pctx^*, \Phi^*, P^*
+\tctx^*, \pctx^*, \Phi^*, C^*, \{f_1, f_2\}
 }
-
-\sai{$\pctx_1 \uplus \pctx_2$ is defined the exact same way from the state inference rules.}
 
 \inferrule*[left=T-Clock]
 {
-f' \text{ fresh} \\ P' = f'.[\cdot], P
+f' \text{ fresh}
 }
 {
-\tctx,\pctx, \Phi, P \vdash
-\text{clock} :
-\text{unit}
-\xrightarrow{}
-\tctx,\pctx, \Phi, P'
+\tctx,\pctx,\Phi, C, f \vdash \text{clock} \rightarrow \tctx,\pctx,\Phi, C_{\m{clock}}(f), f'
 }
 
-
-\inferrule*[left=T-Transition] 
-{ \tctx, \pctx, \Phi, C \vdash x : \rho \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ P = \Vec{f}.[C], P^* \\ P' = \Vec{f}.[C + C(p : (\alpha_0, st))], P^*
-} 
-{ 
-\tctx, \pctx,\Phi, P \vdash \text{transition}(x, st) : \text{unit} \rightarrow \tctx, \pctx', \Phi', P' 
+\inferrule*[left=T-Transition]
+{
+\tctx, \pctx, \Phi \vdash x : \rho \\
+\pctx(x) = \alpha_0 \\ 
+\alpha_1 \text{ fresh} \\
+\Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\
+\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st),\, f)
+}
+{
+\tctx,\pctx,\Phi, C, f \vdash \text{transition}(x, st) \rightarrow \tctx,\pctx',\Phi', C', f
 }
 
 \inferrule*[left=T-Downgrade]
 {
-\tctx, \pctx, \Phi, P \vdash x : \rho \\ s \hookrightarrow st \in x(D) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ P = \Vec{f}.[C], P^* \\ P' = \Vec{f}.[C + C(p : (\alpha_0, st))], P^*
+\tctx, \pctx, \Phi \vdash x : \rho \\
+s \hookrightarrow st \in x(D) \\
+\pctx(x) = \alpha_0 \\ 
+\alpha_1 \text{ fresh} \\
+\Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\
+\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st),\, f)
 }
 {
-\tctx,\pctx, \Phi, P \vdash
-\text{downgrade}(x,st) :
-\text{unit}
-\rightarrow
-\tctx, \pctx', \Phi',P'
+\tctx, \pctx, \Phi, C, f \vdash \text{downgrade}(x, st) \rightarrow \tctx, \pctx', \Phi', C', f
 }
 
-\inferrule*[left=T-FunDecl] 
-{ \alpha_{\text{in}} \text{ fresh} \\ \pctx = p : [\alpha_{\text{i}}] \\ \tctx, \pctx, \cdot, \cdot \vdash c \rightarrow \pctx_f, \Phi_f, P'_f \\ \pctx_f(p) = \alpha_{\text{o}} \\ \Vec{st} = \m{solve}(\Phi_f \setminus \Phi_f|_{\alpha_i}) \\ P_f = P'_f[\Vec{st}] \\ \Vec{s_1} = \m{solve}(\Phi_f|_{\alpha_{\text{i}}}) \\ \Vec{s_2} = \m{solve}(\Phi_f|_{\alpha_{\text{o}}}) \\ \tau_f = \tau_1 \rightarrow \tau_2
-} 
-{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, P_f, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2} }
-
-\inferrule*[ left=T-Call]
+\inferrule*[left=T-FunDecl]
 {
-\tctx(f)=
-\tau_1 \rightarrow \tau_2, P_f, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2}
-\\ \alpha = \pctx(p) \\ \m{rename}(\Phi_f|_{\alpha_i}, \alpha) \\ P = \Vec{f}.[C], P^* \\
-\tctx,\pctx,\Phi, P \vdash e : \tau_1, C_a \\ \Vec{f}.[C + C_a], P^* = P_1 \\ \alpha' \text{ fresh} \\ \Vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'[p] = \alpha' :: \pctx[p] \\ P' = P_f[\Vec{s}], P_1 \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} 
+\alpha_i \text{ fresh} \\
+\pctx = p : [\alpha_i] \\
+\tctx, \pctx, \cdot, f, \cdot \vdash c \rightarrow \pctx_f,\Phi_f, C, f_f \\
+\pctx_f(p) = \alpha_o \\
+\vec{s_1} = \m{solve}(\Phi_f|_{\alpha_i}) \\
+\vec{s_2} = \m{solve}(\Phi_f|_{\alpha_o}) \\
+\tau_f = \tau_1 \rightarrow \tau_2 \\ \tctx, \pctx, f_f \vdash e: \tau_2, C_r(f_f) \\ C_f = C + C_r(f_f)
 }
 {
-\tctx,\pctx, \Phi, P \vdash
-\text{let } x = f(e,p) :
-\text{unit}
-\rightarrow
-\tctx[x:\tau_2], \pctx', \Phi', P'
+\tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f_f
+}
+
+\inferrule*[left=T-Call]
+{
+\tctx(f) = \tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f' \\
+\alpha = \pctx(p) \\
+\vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\
+\vec{s} \subseteq \vec{s_1} \\
+\tctx,\pctx, f \vdash e : \tau_1, C_a(f) \\
+\alpha' \text{ fresh} \\
+\pctx'[p] = \alpha' :: \pctx[p] \\
+\Phi' = \Phi \land \alpha \subseteq \vec{s_1} \land \alpha' \subseteq \vec{s_2} \\ C' = C_a(f) + C_f[\Vec{s}]
+}
+{
+\tctx,\pctx,\Phi,C, f \vdash \text{let}\; x = f(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
 }
 
 \end{mathpar}
@@ -340,110 +373,6 @@ $$
 \end{mathpar}
 
 \sai{state inference rules end here}
-\newpage
-\sai{AARA system starts here}
-
-
-Command typing rules are of the form $$
-\begin{aligned}
-    \fbox{$\tctx, \pctx \vdash c: \tau \xrightarrow{C} \tctx', \pctx'$}
-\end{aligned}
-$$
-
-Expression typing rules are of the form $$
-\begin{aligned}
-    \fbox{$\tctx, \pctx \vdash e: \tau, C $}
-\end{aligned}
-$$
-
-
-\begin{mathpar}
-
-\inferrule*[left=T-Var]
-{ \tctx(x) = \tau }
-{ \tctx, \pctx \vdash x : \tau, C_v }
-
-
-\inferrule*[left=T-BinOp]
-{
-\tctx,\pctx \vdash e_1 : \tau_1, C_1 \\ \tctx,\pctx \vdash e_2 : \tau_2, C_2 \\ \text{binop} : \tau_1 \times \tau_2 \xrightarrow{C_b} \tau
-}
-{
-\tctx,\pctx \vdash e_1 \ \text{binop}\ e_2 : \tau, C_1 + C_2 + C_b
-}
-
-\inferrule*[left=T-PeriphDecl]
-{
-| \langle s_0,\ldots s_n \rangle | \geq 1 \\ \forall s' \hookrightarrow s \in D, s' > s
-}
-{
-\tctx, \pctx \vdash \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \} : \text{unit} \Rightarrow \tctx[\text{id} : \rho], \pctx
-}
-
-\inferrule*[left=T-Let]
-{ \tctx,\pctx \vdash e : \tau, C_e }
-{ 
-\tctx,\pctx \vdash \text{let } x = e : \text{unit} \xrightarrow{C_l + C_e} \tctx[x : \tau] , \pctx
-}
-
-\inferrule*[left=T-Call]
-{
-\tctx(f) = (\tau_1, \Vec{s_1}) \xrightarrow{\Phi_f} (\tau_2, \Vec{s_2}) \\ \tctx,\pctx \vdash e : \tau_1 \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq s_1 \\ C_f = \Phi_f[\Vec{s}] \\ C = C_f + C_a + \max(\forall s_i \in \Vec{s}, \m{cost}(s_i, s_1))
-}
-{
-\tctx,\pctx \vdash \text{let } x = f(e, p) : \text{unit} \xrightarrow{C} \tctx[x : \tau_2], \pctx[p: s_2]
-}
-
-\inferrule*[left=T-Transition]
-{
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \leq st \\ C = \max(\forall s_i \in \Vec{s}, \m{cost}(s_i, st))
-}
-{ 
-\tctx,\pctx \vdash \text{transition}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
-}
-
-\inferrule*[left=T-Downgrade]
-{
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in p(D) \\ C = \max (\forall s_i \in \Vec{s}, \m{cost}(s_i, st) )
-}
-{ 
-\tctx,\pctx \vdash \text{downgrade}(x, st) : \text{unit} \xrightarrow{C} \tctx, \pctx[x : st]
-}
-
-\inferrule*[left=T-If]
-{
-\tctx,\pctx \vdash e : \text{bool} \\ \tctx,\pctx \vdash c_1 : \tau \xrightarrow{C_1} \tctx_1, \pctx_1 \\ \tctx,\pctx \vdash c_2 : \tau \xrightarrow{C_2} \tctx_2, \pctx_2 \\ \tctx^* = \tctx_1 \cup \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ C = \max(C_1, C_2)
-}
-{
-\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2: \tau \xrightarrow{C} \tctx^*, \pctx^*
-}
-\end{mathpar}
-\begin{mathpar}
-\inferrule*[left=T-Seq]
-{
-\tctx,\pctx \vdash c_1 : \tau_1 \xrightarrow{C'} \tctx', \pctx' \\ \tctx',\pctx' \vdash c_2 : \tau_2 \xrightarrow{C''} \tctx'', \pctx'' \\ C'_{\max} = \m{cost}(\pctx') \\ C = C' + C'' + C'_{\max}
-}
-{
-\tctx,\pctx \vdash c_1 ; c_2 : \tau_2 \xrightarrow{C} \tctx'', \pctx''
-}
-
-\inferrule*[left=T-Atomic]
-{
-\forall i, \pctx(p_i) \subseteq \Vec{s_i} \\ \tctx,\pctx \vdash c : \tau \xrightarrow{C'} \tctx', \pctx' \\ C = [\sum_{i=1}^{n} \max(\forall s'_i \in \Vec{s_i}, \m{cost(s'_i)})] + C'
-}
-{ 
-\tctx,\pctx \vdash \text{atomic}\{p_1: \Vec{s_1}, \dots, p_n: \Vec{s_n} \}(c) : \tau \xrightarrow{C} \tctx', \pctx'
-}
-
-\inferrule*[left=T-FunDecl]
-{
-\tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau' \xrightarrow{C_1} \tctx', \pctx' \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, C_2 \\ \Phi_f = C_1(\Vec{s_1}) + C_2(\Vec{s_1})
-}
-{ \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \xrightarrow{\Phi_f} (\tau_2, \Vec{s_2})], \pctx
-}
-
-\end{mathpar}
-\sai{AARA system ends here}
 \newpage
 \sai{Typestate system starts here}
 
