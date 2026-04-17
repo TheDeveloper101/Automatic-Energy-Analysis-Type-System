@@ -116,7 +116,79 @@ The typing rules for these additional commands are as follows:
     \tctx, \pctx, \Phi, C, f \vdash \text{await } h \rightarrow \tctx', \pctx', \Phi', C', f'
     }
 \end{mathpar}
+\newpage
 
+We represent the machine state as a tuple $\Sigma ::= (M, T, c, P, H)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $c$ is the current command, $P$ is the software view of the peripheral state and $H$ is the hardware view of the peripheral state. $T$ maps handles to a tuple $(P, H, p, c)$ which is the peripheral $p$, the commands being executed, $p$'s software state $P$ and $p$'s hardware state $H$. We have two different viewpoints of peripherals because a peripheral can be in a transient state, during which the software can only guarantee it is in the reachable transient states $\Vec{s}$ from the transient state it transitioned to. However, the hardware can non-deterministically transition to any state within the set. We introduce the sync() construct to provide a way to force the synchronization of peripheral state and allow software to introspect the peripheral state again. Finally, we assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends.
+
+\[
+\begin{array}{llcl}
+\textit{Memory} & M & \bnfdef & x \rightarrow v, M \bnfalt \cdot
+\\ 
+\textit{Thread Pool} & T & \bnfdef & h \rightarrow (P, H, p, c), T \bnfalt \cdot 
+\\
+\textit{Software Peripheral Map} & P & \bnfdef & p \rightarrow \Vec{s}, P \bnfalt \cdot
+\\
+\textit{Hardware Peripheral Map} & H & \bnfdef &  p \rightarrow s, H \bnfalt \cdot
+\end{array}
+\]
+
+\begin{mathpar}
+    \inferrule*[left=E-Async]
+    {
+    h \notin \m{dom}(T) \\ P' = P \setminus P_p \\ H' = H \setminus H_p
+    }
+    {
+    (M, T, \text{let } h = \text{async}(p) \ \{c_a\}, P, H) \rightarrow (M, T[h \mapsto (P, H, p, c_a)], \text{skip}, P', H')
+    }
+    
+    \inferrule*[left=E-AsyncStep]
+    {
+    (P_p, H_p, p, c_a) \rightarrow (P'_p, H'_p, p, c'_a)
+    }
+    {
+    (M, T[h \mapsto (P_p, H_p, p, c_a)], c, P, H) \rightarrow (M, T[h \mapsto (P'_p, H'_p, p, c'_a)], c, P, H)
+    }
+
+    \inferrule*[left=E-AsyncDone]
+    {
+    }
+    {
+    (M, T[h \mapsto (P_p, H_p, p, v)], c, P, H) \rightarrow (M, T[h \mapsto \text{done}(P_p, H_p, p, v)], c, P, H)
+    }
+
+    \inferrule*[left=E-Await]
+    {
+    T(h) = \text{done}(P_p, H_p, p, v) \\ P' = P \cup P_p \\ H' = H \cup H_p
+    }
+    {
+    (M, T, \text{let } x = \text{await } h, P, H) \rightarrow (M[x \mapsto v], T, \text{skip}, P', H')
+    }
+
+    \inferrule*[left=E-TransitionTransient]
+    {
+    x \in \m{dom}(P) \\ P(x) = H(x) = s \\ \texttt{transient}(st) = \m{reachable}(st) \\ P[x : \texttt{transient}(st)] \\ H[x : st]
+    }
+    {
+    (M, T, \text{transition}(x, \Vec{st}), P, H) \rightarrow (M, T, \text{skip}, P', H')
+    }
+
+    \inferrule*[left=E-TransientStep]
+    {
+    P(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ H' = H[x: s'] \\ s' \in \texttt{transient}(st)
+    }
+    {
+    (M, T, c, P, H) \rightarrow (M, T, c, P, H')
+    }
+
+    \inferrule*[left=E-Sync]
+    {
+    P(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ P' = P[x: st] \\ H' = H[x: st]
+    }
+    {
+    (M, T, \text{sync}(p, st), P, H) \rightarrow (M, T, \text{skip}, P', H')
+    }
+\end{mathpar}
+\newpage
 Our typing judgment is of the form: 
 $$ \begin{aligned}
     \fbox{$\tctx, \pctx, \Phi, C, f \vdash c \rightarrow \tctx', \pctx', \Phi', C', f'$}
@@ -205,7 +277,7 @@ s \hookrightarrow st \in x(D) \\
 \Phi' = \Phi \land \alpha \subseteq \vec{s_1} \land \alpha' \subseteq \vec{s_2} \\ C' = C_a(f) + C_f[\Vec{s}]
 }
 {
-\tctx,\pctx,\Phi,C, f \vdash \text{let}\; x = f(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
+\tctx,\pctx,\Phi,C, f \vdash \text{let } x = f(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
 }
 
 \end{mathpar}
