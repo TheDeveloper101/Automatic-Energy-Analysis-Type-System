@@ -118,74 +118,91 @@ The typing rules for these additional commands are as follows:
 \end{mathpar}
 \newpage
 
-We represent the machine state as a tuple $\Sigma ::= (M, T, c, P, H)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $c$ is the current command, $P$ is the software view of the peripheral state and $H$ is the hardware view of the peripheral state. $T$ maps handles to a tuple $(P, H, p, c)$ which is the peripheral $p$, the commands being executed, $p$'s software state $P$ and $p$'s hardware state $H$. We have two different viewpoints of peripherals because a peripheral can be in a transient state, during which the software can only guarantee it is in the reachable transient states $\Vec{s}$ from the transient state it transitioned to. However, the hardware can non-deterministically transition to any state within the set. We introduce the sync() construct to provide a way to force the synchronization of peripheral state and allow software to introspect the peripheral state again. Finally, we assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends.
+We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $C$ is the stack of frames executing, $S$ is the software view of the peripheral state and $H$ is the hardware view of the peripheral state. $T$ maps handles to a tuple $(p, c)$ which is the peripheral $p$ and the commands being executed. We model concurrent execution in a preemptive fashion. Our execution is instead a stack of frames, which each represent either a computation or a hole waiting for another thread to finish. We can spawn threads using $\m{async}$ which enter the thread pool, and the scheduler can non-deterministically choose a thread from the pool to be pushed onto the execution stack. We always execute commands from the top of the execution stack. We have two different viewpoints of peripherals because a peripheral can be in a transient state, during which the software can only guarantee it is in the reachable transient states $\Vec{s}$ from the transient state it transitioned to. However, the hardware can non-deterministically transition to any state within the set. We introduce the sync() construct to provide a way to force the synchronization of peripheral state and allow software to introspect the peripheral state again. Finally, we assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends.
 
 \[
 \begin{array}{llcl}
-\textit{Memory} & M & \bnfdef & x \rightarrow v, M \bnfalt \cdot
+\textit{Memory} & M & \bnfdef & x \mapsto v, M \bnfalt \cdot
 \\ 
-\textit{Thread Pool} & T & \bnfdef & h \rightarrow (P, H, p, c), T \bnfalt \cdot 
+\textit{Thread Pool} & T & \bnfdef & tid \mapsto (p, c), T \bnfalt \cdot 
 \\
-\textit{Software Peripheral Map} & P & \bnfdef & p \rightarrow \Vec{s}, P \bnfalt \cdot
+\textit{Software Peripheral Map} & S & \bnfdef & p \mapsto \Vec{s}, P \bnfalt \cdot
 \\
-\textit{Hardware Peripheral Map} & H & \bnfdef &  p \rightarrow s, H \bnfalt \cdot
+\textit{Hardware Peripheral Map} & H & \bnfdef &  p \mapsto s, H \bnfalt \cdot
+\\
+\textit{Execution Context} & C & \bnfdef &  f, C \bnfalt \cdot
+\\
+\textit{Frame} & f & \bnfdef & tid : (p, c) \bnfalt \cdot
 \end{array}
 \]
 
 \begin{mathpar}
-    \inferrule*[left=E-Async]
+    \inferrule*[left=E-Seq]
     {
-    h \notin \m{dom}(T) \\ P' = P \setminus P_p \\ H' = H \setminus H_p
+    c_1 \rightarrow c'_1
     }
     {
-    (M, T, \text{let } h = \text{async}(p) \ \{c_a\}, P, H) \rightarrow (M, T[h \mapsto (P, H, p, c_a)], \text{skip}, P', H')
+    (M, T, (tid: p, c_1; c_2) :: C, S, H) \rightarrow (M, T, (tid: p, c'_1; c_2) :: C, S, H)
+    }
+
+    \inferrule*[left=E-SeqDone]
+    { }
+    {
+    (M, T, (tid: p, \text{skip}; c_2) :: C, S, H) \rightarrow (M, T, (tid: p, c_2) :: C, S, H)
     }
     
-    \inferrule*[left=E-AsyncStep]
+    \inferrule*[left=E-Async]
     {
-    (P_p, H_p, p, c_a) \rightarrow (P'_p, H'_p, p, c'_a)
+    tid \notin \m{dom}(T)
     }
     {
-    (M, T[h \mapsto (P_p, H_p, p, c_a)], c, P, H) \rightarrow (M, T[h \mapsto (P'_p, H'_p, p, c'_a)], c, P, H)
+    (M, T, (tid' : p, \text{let } tid = \text{async}(p) \ \{c_a\}) :: C, S, H) \rightarrow (M, T[tid \mapsto (p, c_a)], (tid' : p, \text{skip}) :: C, S, H)
+    }
+    
+    \inferrule*[left=E-AsyncPreempt]
+    { }
+    {
+    (M, T[tid \mapsto (p, c_a)], C, S, H) \rightarrow (M, T \setminus tid, (tid: p, c_a) :: C, S, H)
     }
 
     \inferrule*[left=E-AsyncDone]
     {
+    C = (tid: p, v) :: C' \\ tid \neq \text{main}
     }
     {
-    (M, T[h \mapsto (P_p, H_p, p, v)], c, P, H) \rightarrow (M, T[h \mapsto \text{done}(P_p, H_p, p, v)], c, P, H)
+    (M, T, C, S, H) \rightarrow (M, T[tid \mapsto \text{done}(p, v)], C', S, H)
     }
 
     \inferrule*[left=E-Await]
     {
-    T(h) = \text{done}(P_p, H_p, p, v) \\ P' = P \cup P_p \\ H' = H \cup H_p
+    T(tid) = \text{done}(p, v) 
     }
     {
-    (M, T, \text{let } x = \text{await } h, P, H) \rightarrow (M[x \mapsto v], T, \text{skip}, P', H')
+    (M, T, (tid' : p, \text{let } x = \text{await } tid) :: C, S, H) \rightarrow (M[x \mapsto v], T, (tid' : p, \text{skip}) :: C, S, H)
     }
 
     \inferrule*[left=E-TransitionTransient]
     {
-    x \in \m{dom}(P) \\ P(x) = H(x) = s \\ \texttt{transient}(st) = \m{reachable}(st) \\ P[x : \texttt{transient}(st)] \\ H[x : st]
+    x \in \m{dom}(S) \\ S(x) = H(x) = s \\ \texttt{transient}(st) = \m{reachable}(st) \\ S[x : \texttt{transient}(st)] \\ H[x : st]
     }
     {
-    (M, T, \text{transition}(x, \Vec{st}), P, H) \rightarrow (M, T, \text{skip}, P', H')
+    (M, T, \text{transition\_t}(x, st) :: C, S, H) \rightarrow (M, T, \text{skip} :: C, S', H')
     }
 
     \inferrule*[left=E-TransientStep]
     {
-    P(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ H' = H[x: s'] \\ s' \in \texttt{transient}(st)
+    S(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ H' = H[x: s'] \\ s' \in \texttt{transient}(st)
     }
     {
-    (M, T, c, P, H) \rightarrow (M, T, c, P, H')
+    (M, T, C, S, H) \rightarrow (M, T, C, S, H')
     }
 
     \inferrule*[left=E-Sync]
     {
-    P(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ P' = P[x: st] \\ H' = H[x: st]
+    S(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ S' = S[x: st] \\ H' = H[x: st]
     }
     {
-    (M, T, \text{sync}(p, st), P, H) \rightarrow (M, T, \text{skip}, P', H')
+    (M, T, \text{sync}(x, st)::C, S, H) \rightarrow (M, T, \text{skip}::C, S', H')
     }
 \end{mathpar}
 \newpage
