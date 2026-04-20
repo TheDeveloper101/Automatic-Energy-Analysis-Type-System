@@ -156,6 +156,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     tid \notin \m{dom}(T)
     }
     {
+        $\milijana{syntax is let $h$ not $t_{id}$}$
     (M, T, (tid' : p, \text{let } tid = \text{async}(p) \ \{c_a\}) :: C, S, H) \rightarrow (M, T[tid \mapsto (p, c_a)], (tid' : p, \text{skip}) :: C, S, H)
     }
     
@@ -168,6 +169,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     \inferrule*[left=E-AsyncDone]
     {
     C = (tid: p, v) :: C' \\ tid \neq \text{main}
+    $\milijana{what happens when main finishes? Also do the command semantics step to a value on done? }$
     }
     {
     (M, T, C, S, H) \rightarrow (M, T[tid \mapsto \text{done}(p, v)], C', S, H)
@@ -176,6 +178,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     \inferrule*[left=E-Await]
     {
     T(tid) = \text{done}(p, v) 
+    $\milijana{syntax is just await $h$, not let x = ...}$
     }
     {
     (M, T, (tid' : p, \text{let } x = \text{await } tid) :: C, S, H) \rightarrow (M[x \mapsto v], T, (tid' : p, \text{skip}) :: C, S, H)
@@ -183,6 +186,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
 
     \inferrule*[left=E-TransitionTransient]
     {
+        $\milijana{is $s$ used? let's discuss reachable premise tomorrow}$
     x \in \m{dom}(S) \\ S(x) = H(x) = s \\ \texttt{transient}(st) = \m{reachable}(st) \\ S[x : \texttt{transient}(st)] \\ H[x : st]
     }
     {
@@ -191,6 +195,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
 
     \inferrule*[left=E-TransientStep]
     {
+        $\milijana{relation of $s$ to $s'$ is too permissive here}$
     S(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ H' = H[x: s'] \\ s' \in \texttt{transient}(st)
     }
     {
@@ -200,6 +205,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     \inferrule*[left=E-Sync]
     {
     S(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ S' = S[x: st] \\ H' = H[x: st]
+     $\milijana{relation of $s$ to $st$ is too permissive here as well. needs to be a valid transition, right, not just two states from some set?}$
     }
     {
     (M, T, \text{sync}(x, st)::C, S, H) \rightarrow (M, T, \text{skip}::C, S', H')
