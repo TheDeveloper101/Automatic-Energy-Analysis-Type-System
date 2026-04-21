@@ -93,19 +93,20 @@ We want to add support for asynchronous peripherals and interrupts. The key intu
 \[
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & \dots \\ 
-  & \bnfalt &\text{let } h = \text{async}(p) \ \{c\} & \text{(async peripheral operation)} \\ & \bnfalt & \text{await } h & \text{(await)}
+  & \bnfalt &\text{let } tid = \text{async}(p) \ \{c\} & \text{(async peripheral operation)} \\ & \bnfalt & \text{let } x = \text{await } tid & \text{(await)} \\ & \bnfalt & \text{transition\_t}(x, st) & \text{(transient transition)}
 \end{array}
 \]
 where $h$ is a "handle" and is equal to $(p, \pctx_p, \Phi_p, C_p, f_p)$.
 The typing rules for these additional commands are as follows:
-
+\sai{the handle stuff is almost certainly wrong}
 \begin{mathpar}
+
     \inferrule*[left=T-AsyncFun]
     {
     \pctx(p) = \alpha_i \\ \tctx, p : [\alpha_i], \Phi|_p, \cdot, f \vdash c \rightarrow \tctx_a, \pctx_a, \Phi_a, C_a, f_a \\ \pctx' = \pctx \setminus \pctx|_p \\ \Phi' = \Phi \setminus \Phi|_p \\ \tctx' = \tctx, h: \texttt{Handle}(p, \pctx_p, \Phi_p, C_p, f_p) \\ C' = C + C_{\text{async spawn cost}}
     }
     {
-    \tctx, \pctx, \Phi, C, f \vdash \text{let } h = \text{async}(p) \ \{c\} : \tau  \rightarrow \tctx', \pctx', \Phi', C', f
+    \tctx, \pctx, \Phi, C, f \vdash \text{let } tid = \text{async}(p) \ \{c\} : \tau  \rightarrow \tctx', \pctx', \Phi', C', f
     }
 
     \inferrule*[left=T-Await]
@@ -113,7 +114,7 @@ The typing rules for these additional commands are as follows:
     \tctx(h) = \texttt{Handle}(p, \pctx_a, \Phi_a, C_a, f_a) \\ p \notin \pctx \\ \pctx' = \pctx \cup \pctx_a \\ \Phi' = \Phi \land \Phi_a \\ C' = C + C_a(f_a) + \m{cost}(\pctx)(f) \\ f' = f \cup f_a
     }
     {
-    \tctx, \pctx, \Phi, C, f \vdash \text{await } h \rightarrow \tctx', \pctx', \Phi', C', f'
+    \tctx, \pctx, \Phi, C, f \vdash \text{let } x = \text{await } tid \rightarrow \tctx', \pctx', \Phi', C', f'
     }
 \end{mathpar}
 \newpage
@@ -132,7 +133,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
 \\
 \textit{Execution Context} & C & \bnfdef &  f, C \bnfalt \cdot
 \\
-\textit{Frame} & f & \bnfdef & tid : (p, c) \bnfalt \cdot
+\textit{Frame} & f & \bnfdef & (tid : p, c) \bnfalt \cdot
 \end{array}
 \]
 
@@ -186,7 +187,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     x \in \m{dom}(S) \\ S(x) = H(x) = s \\ \texttt{transient}(st) = \m{reachable}(st) \\ S[x : \texttt{transient}(st)] \\ H[x : st]
     }
     {
-    (M, T, \text{transition\_t}(x, st) :: C, S, H) \rightarrow (M, T, \text{skip} :: C, S', H')
+    (M, T, \text{transition}(x, st) :: C, S, H) \rightarrow (M, T, \text{skip} :: C, S', H')
     }
 
     \inferrule*[left=E-TransientStep]
@@ -248,11 +249,11 @@ f' \text{ fresh}
 \tctx, \pctx, \Phi \vdash x : \rho \\
 \pctx(x) = \alpha_0 \\ 
 \alpha_1 \text{ fresh} \\
-\Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\
-\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st),\, f)
+\Phi' = \Phi \land (\forall st \in \Vec{st}, \alpha_0 \leq st) \land \alpha_1 \subseteq \Vec{st} \\
+\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = \m{max}_{s \in \Vec{st}}(C(p : (\alpha_0, s), f))
 }
 {
-\tctx,\pctx,\Phi, C, f \vdash \text{transition}(x, st) \rightarrow \tctx,\pctx',\Phi', C', f
+\tctx,\pctx,\Phi, C, f \vdash \text{transition}(x, \Vec{st}) \rightarrow \tctx,\pctx',\Phi', C', f
 }
 
 \inferrule*[left=T-Downgrade]
