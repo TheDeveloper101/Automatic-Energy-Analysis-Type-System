@@ -40,7 +40,7 @@ Our judgments use the following additional constructs.
 
 A downgrade policy $s' \hookrightarrow s$ means that a peripheral in state $s'$ can transition to state $s$ assuming that $s' > s$. 
 We also assume the existence of the cost functions 
-$\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each peripheral being in the maximum possible state. Lastly, we define $C(\Vec{s})$ to be the symbolic cost of executing a command, but depend on some unknown peripheral states $\Vec{s}$. 
+$\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each peripheral being in the maximum possible state. 
 We assume that the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements. 
 
@@ -69,7 +69,7 @@ We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx)
 }
 
 \inferrule*[left=Stack Join] 
-{ \pi = \m{prefix}(\pctx_1[p], \pctx_2[p]) \\ \pctx_1[p] = \alpha_1 :: \sigma_1 :: \pi \\ \pctx_2[p] = \alpha_2 :: \sigma_2 :: \pi \\ \alpha' \text{ fresh} \\ \Phi' = (\Phi_1 \land \Phi_2) \land \{ \alpha' = \alpha_1 \lor \alpha_2 \} \\ \pctx'[p] = \alpha' :: \sigma_1 :: \sigma_2 :: \pi
+{ \pi = \m{prefix}(\pctx_1[p], \pctx_2[p]) \\ \pctx_1[p] = \alpha_1 :: \sigma_1 :: \pi \\ \pctx_2[p] = \alpha_2 :: \sigma_2 :: \pi \\ \alpha' \text{ fresh} \\ \Phi' = (\Phi_1 \land \Phi_2) \land  (\alpha' = \alpha_1 \lor \alpha_2 ) \\ \pctx'[p] = \alpha' :: \sigma_1 :: \sigma_2 :: \pi
 } 
 { \Phi_1, \Phi_2 \vdash \pctx_1[p] \uplus \pctx_2[p] = \pctx'[p], \Phi' 
 }
@@ -89,37 +89,35 @@ We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx)
 {\pctx_1 \uplus \pctx_2 = \pctx_2 \uplus \pctx_1}
 \end{mathpar}
 
-We want to add support for asynchronous peripherals and interrupts. The key intuition is that asynchronous peripherals behave really similarly to named effects, and interrupts behave similarly to effect handlers. We extend our language's commands to include the following:
+We want to modell hardware-software concurrency as well. Following the lead of Abacus, we define transient states, which are states that represent when our peripheral is performing actions via hardware-initiated behavior (like interrupts). We update our language constructs in the following ways. First, we define the predicates transient($st$) and stable($st$) to specify when a state is either transient or stable. In more concrete terms, a state is transient if there is at least one \textbf{outgoing} transition that is hardware-initiated. To represent the concurrent behavior, we use an async/await syntax. We use capturing semantics to represent the idea that the peripheral is now executing concurrently and is not accessible to software. When we initiate an async call, the peripheral must be in a transient state, which is only possible from a software initiated transition. In order to model that transition into a transient state, we update the state inference constraint such that the new state must be a subset of $\{st\} \cup \text{HWReach}(st)$. What this means is that it must be a subset of the set of all reachable transient states from the state that is transitioned to. When we typecheck an async command, we first solve for the input states and make sure the peripheral is in a transient state, then we typecheck the body of the asynchronous function - which represents the commands that are executed while in the transient state. Finally, we enforce that once the function is finished, the peripheral must transition back to a stable state. We then use the await construct to block execution until the thread has completed. However, blocking indefinitely would prevent us from being able to assign cost bounds to programs, as they can take abritrarily long periods of time. To get around this, we require that an await statement also includes a timeout and a fallback codeblock that executes once the timeout triggers. We then take the max cost of either triggering the timeout or completing execution. Finally, because a peripheral can now be in either a set of transient states, or a set of stable states, we require that a peripheral cannot be in a set of mixed states, i.e. both transient and stable. This means that anytime we check the state of a peripheral, it must either be all transient or all stable. We extend our language's commands to include the following:
 \[
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & \dots \\ 
-  & \bnfalt &\text{let } tid = \text{async}(p) \ \{c\} & \text{(async peripheral operation)} \\ & \bnfalt & \text{let } x = \text{await } tid & \text{(await)} \\ & \bnfalt & \text{transition\_t}(x, st) & \text{(transient transition)}
+  & \bnfalt &\text{let } tid = \text{async}(p) \ \{c\} & \text{(async peripheral operation)} \\ & \bnfalt & \text{await } tid \text{ timeout } \{c_\text{fb}\} & \text{(await)} 
 \end{array}
 \]
-where $h$ is a "handle" and is equal to $(p, \pctx_p, \Phi_p, C_p, f_p)$.
-The typing rules for these additional commands are as follows:
-\sai{the handle stuff is almost certainly wrong}
+
 \begin{mathpar}
-
     \inferrule*[left=T-AsyncFun]
-    {
-    \pctx(p) = \alpha_i \\ \tctx, p : [\alpha_i], \Phi|_p, \cdot, f \vdash c \rightarrow \tctx_a, \pctx_a, \Phi_a, C_a, f_a \\ \pctx' = \pctx \setminus \pctx|_p \\ \Phi' = \Phi \setminus \Phi|_p \\ \tctx' = \tctx, h: \texttt{Handle}(p, \pctx_p, \Phi_p, C_p, f_p) \\ C' = C + C_{\text{async spawn cost}}
+    { \pctx(p) = \alpha_i \\ \Vec{s_i} = \text{solve}(\Phi|_{\alpha_i}) \\ \forall st \in \vec{s_i}, \text{transient}(st) \\ \tctx, p : [\alpha_i], \Phi|_p, \cdot, f \vdash c \rightarrow \tctx_a, \pctx_a, p : [\alpha_o], C_a, f_a \\ \vec{s_o} = \text{solve}(\Phi_a|_{\alpha_o}) \\ \forall st \in \vec{s_o},\ \text{stable}(st) \\ \pctx' = \pctx \setminus \pctx|_p \\ \Phi' = \Phi \setminus \Phi|_p \\ C' = C + C_\text{async spawn}
     }
-    {
-    \tctx, \pctx, \Phi, C, f \vdash \text{let } tid = \text{async}(p) \ \{c\} : \tau  \rightarrow \tctx', \pctx', \Phi', C', f
+    { \tctx, \pctx, \Phi, C, f \vdash \text{let } tid = \text{async}(p)\ \{c\} \rightarrow \tctx[tid : (p, \pctx_a, \Phi_a, C_a, f_a)], \pctx', \Phi', C', f
+    }
+    
+    \inferrule*[left=T-Await-Timeout]
+    {\tctx(tid) = (p, \pctx_a, \Phi_a, C_a, f_a) \\ p \notin \pctx \\  \tctx, \pctx, \Phi, C, f \vdash c_\text{fb} \rightarrow \tctx_\text{fb}, \pctx_\text{fb}, \Phi_\text{fb}, C_\text{fb}, f_\text{fb} \\ \Vec{s_\text{fb}} = \text{solve}(\Phi_\text{fb}|_p) \\ \forall st \in \vec{s_\text{fb}}, \text{stable}(st) \\ C_\text{timeout} = \text{timeout * } C_\text{transient}(p : \alpha_i) \\ C_\text{await timeout} = C_\text{timeout}(f_\text{fb}) + C_\text{fb}(f_\text{fb}) \\ C' = C + \max(C_a(f_a), C_\text{await timeout}) \\ \pctx_r = \pctx \cup \pctx_a \\ \pctx'', \Phi'' = \pctx_r \uplus \pctx_\text{fb}
+    }
+    { \tctx, \pctx, \Phi, C, f \vdash \text{await } tid \text{ timeout} \ \{c_\text{fb}\} \rightarrow \tctx, \pctx'', \Phi'', C', f \cup f_a \cup f_\text{fb}
     }
 
-    \inferrule*[left=T-Await]
-    {
-    \tctx(h) = \texttt{Handle}(p, \pctx_a, \Phi_a, C_a, f_a) \\ p \notin \pctx \\ \pctx' = \pctx \cup \pctx_a \\ \Phi' = \Phi \land \Phi_a \\ C' = C + C_a(f_a) + \m{cost}(\pctx)(f) \\ f' = f \cup f_a
+    \inferrule*[left=T-Transition-Transient]
+    { \tctx, \pctx, \Phi \vdash x : \rho \\ st = \text{transient}(st) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Vec{st}^+ = st \cup \text{HWReach}(st) \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 \subseteq \Vec{st}^+ \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st), f)
     }
-    {
-    \tctx, \pctx, \Phi, C, f \vdash \text{let } x = \text{await } tid \rightarrow \tctx', \pctx', \Phi', C', f'
+    { \tctx, \pctx, \Phi, C, f \vdash \text{transition}(x, st) \rightarrow \tctx, \pctx', \Phi', C', f
     }
 \end{mathpar}
-\newpage
 
-We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $C$ is the stack of frames executing, $S$ is the software view of the peripheral state and $H$ is the hardware view of the peripheral state. $T$ maps handles to a tuple $(p, c)$ which is the peripheral $p$ and the commands being executed. We model concurrent execution in a preemptive fashion. Our execution is instead a stack of frames, which each represent either a computation or a hole waiting for another thread to finish. We can spawn threads using $\m{async}$ which enter the thread pool, and the scheduler can non-deterministically choose a thread from the pool to be pushed onto the execution stack. We always execute commands from the top of the execution stack. We have two different viewpoints of peripherals because a peripheral can be in a transient state, during which the software can only guarantee it is in the reachable transient states $\Vec{s}$ from the transient state it transitioned to. However, the hardware can non-deterministically transition to any state within the set. We introduce the sync() construct to provide a way to force the synchronization of peripheral state and allow software to introspect the peripheral state again. Finally, we assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends.
+We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $C$ is the stack of frames executing, $S$ is the map of peripherals to their state, and $T$ maps handles to a tuple $(p, c)$ which is the peripheral $p$ and the commands being executed. We model concurrent execution in a preemptive fashion. Our execution is instead a stack of frames, which each represent either a computation or a hole waiting for another thread to finish. We can spawn threads using $\m{async}$ which enter the thread pool, and the scheduler can non-deterministically choose a thread from the pool to be pushed onto the execution stack. We always execute commands from the top of the execution stack. We assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends. We can use this to model hardware concurrency and transient states, since while the peripheral is captured, it performs it's own operations that the main thread is oblivious to.
 
 \[
 \begin{array}{llcl}
@@ -127,9 +125,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
 \\ 
 \textit{Thread Pool} & T & \bnfdef & tid \mapsto (p, c), T \bnfalt \cdot 
 \\
-\textit{Software Peripheral Map} & S & \bnfdef & p \mapsto \Vec{s}, P \bnfalt \cdot
-\\
-\textit{Hardware Peripheral Map} & H & \bnfdef &  p \mapsto s, H \bnfalt \cdot
+\textit{Peripheral Map} & S & \bnfdef & p \mapsto s, P \bnfalt \cdot
 \\
 \textit{Execution Context} & C & \bnfdef &  f, C \bnfalt \cdot
 \\
@@ -143,13 +139,13 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     c_1 \rightarrow c'_1
     }
     {
-    (M, T, (tid: p, c_1; c_2) :: C, S, H) \rightarrow (M, T, (tid: p, c'_1; c_2) :: C, S, H)
+    (M, T, (tid: p, c_1; c_2) :: C, S) \rightarrow (M, T, (tid: p, c'_1; c_2) :: C, S)
     }
 
     \inferrule*[left=E-SeqDone]
     { }
     {
-    (M, T, (tid: p, \text{skip}; c_2) :: C, S, H) \rightarrow (M, T, (tid: p, c_2) :: C, S, H)
+    (M, T, (tid: p, \text{skip}; c_2) :: C, S) \rightarrow (M, T, (tid: p, c_2) :: C, S)
     }
     
     \inferrule*[left=E-Async]
@@ -157,60 +153,31 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, H)$ where $M$
     tid \notin \m{dom}(T)
     }
     {
-        $\milijana{syntax is let $h$ not $t_{id}$}$
-    (M, T, (tid' : p, \text{let } tid = \text{async}(p) \ \{c_a\}) :: C, S, H) \rightarrow (M, T[tid \mapsto (p, c_a)], (tid' : p, \text{skip}) :: C, S, H)
+    (M, T, (tid' : p, \text{let } tid = \text{async}(p) \ \{c_a\}) :: C, S) \rightarrow (M, T[tid \mapsto (p, c_a)], (tid' : p, \text{skip}) :: C, S)
     }
     
     \inferrule*[left=E-AsyncPreempt]
     { }
     {
-    (M, T[tid \mapsto (p, c_a)], C, S, H) \rightarrow (M, T \setminus tid, (tid: p, c_a) :: C, S, H)
+    (M, T[tid \mapsto (p, c_a)], C, S) \rightarrow (M, T \setminus tid, (tid: p, c_a) :: C, S)
     }
 
     \inferrule*[left=E-AsyncDone]
     {
     C = (tid: p, v) :: C' \\ tid \neq \text{main}
-    $\milijana{what happens when main finishes? Also do the command semantics step to a value on done? }$
     }
     {
-    (M, T, C, S, H) \rightarrow (M, T[tid \mapsto \text{done}(p, v)], C', S, H)
+    (M, T, C, S) \rightarrow (M, T[tid \mapsto \text{done}(p, v)], C', S)
     }
 
     \inferrule*[left=E-Await]
     {
     T(tid) = \text{done}(p, v) 
-    $\milijana{syntax is just await $h$, not let x = ...}$
     }
     {
-    (M, T, (tid' : p, \text{let } x = \text{await } tid) :: C, S, H) \rightarrow (M[x \mapsto v], T, (tid' : p, \text{skip}) :: C, S, H)
+    (M, T, (tid' : p, \text{let } x = \text{await } tid) :: C, S) \rightarrow (M[x \mapsto v], T, (tid' : p, \text{skip}) :: C, S)
     }
 
-    \inferrule*[left=E-TransitionTransient]
-    {
-        $\milijana{is $s$ used? let's discuss reachable premise tomorrow}$
-    x \in \m{dom}(S) \\ S(x) = H(x) = s \\ \texttt{transient}(st) = \m{reachable}(st) \\ S[x : \texttt{transient}(st)] \\ H[x : st]
-    }
-    {
-    (M, T, \text{transition}(x, st) :: C, S, H) \rightarrow (M, T, \text{skip} :: C, S', H')
-    }
-
-    \inferrule*[left=E-TransientStep]
-    {
-        $\milijana{relation of $s$ to $s'$ is too permissive here}$
-    S(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ H' = H[x: s'] \\ s' \in \texttt{transient}(st)
-    }
-    {
-    (M, T, C, S, H) \rightarrow (M, T, C, S, H')
-    }
-
-    \inferrule*[left=E-Sync]
-    {
-    S(x) = \texttt{transient}(st) \\ H(x) = s \\ s \in \texttt{transient}(st) \\ S' = S[x: st] \\ H' = H[x: st]
-     $\milijana{relation of $s$ to $st$ is too permissive here as well. needs to be a valid transition, right, not just two states from some set?}$
-    }
-    {
-    (M, T, \text{sync}(x, st)::C, S, H) \rightarrow (M, T, \text{skip}::C, S', H')
-    }
 \end{mathpar}
 \newpage
 Our typing judgment is of the form: 
@@ -255,11 +222,11 @@ f' \text{ fresh}
 \tctx, \pctx, \Phi \vdash x : \rho \\
 \pctx(x) = \alpha_0 \\ 
 \alpha_1 \text{ fresh} \\
-\Phi' = \Phi \land (\forall st \in \Vec{st}, \alpha_0 \leq st) \land \alpha_1 \subseteq \Vec{st} \\
-\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = \m{max}_{s \in \Vec{st}}(C(p : (\alpha_0, s), f))
+\Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\
+\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st), f)
 }
 {
-\tctx,\pctx,\Phi, C, f \vdash \text{transition}(x, \Vec{st}) \rightarrow \tctx,\pctx',\Phi', C', f
+\tctx,\pctx,\Phi, C, f \vdash \text{transition}(x, st) \rightarrow \tctx,\pctx',\Phi', C', f
 }
 
 \inferrule*[left=T-Downgrade]
@@ -279,7 +246,7 @@ s \hookrightarrow st \in x(D) \\
 {
 \alpha_i \text{ fresh} \\
 \pctx = p : [\alpha_i] \\
-\tctx, \pctx, \cdot, f, \cdot \vdash c \rightarrow \pctx_f,\Phi_f, C, f_f \\
+\tctx, x : \tau_1, \pctx, \cdot, f, \cdot \vdash c \rightarrow \pctx_f,\Phi_f, C, f_f \\
 \pctx_f(p) = \alpha_o \\
 \vec{s_1} = \m{solve}(\Phi_f|_{\alpha_i}) \\
 \vec{s_2} = \m{solve}(\Phi_f|_{\alpha_o}) \\

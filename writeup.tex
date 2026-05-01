@@ -11,7 +11,7 @@
 
 
 \title{Automatic Energy Analysis Using Types}
-\author{Anonymous Author}
+\author{Sai Divvela}
 \setcctype{none}
 \settopmatter{printacmref=false, printccs=false}
 \maketitle
@@ -26,11 +26,10 @@ The stateful nature of peripherals is a particular obstacle for static analysis.
 
 To address these limitations, we use the notion of \textit{peripheral typestate}, a type-level representation of a peripheral's modes of operation, and combine it with prior work on automatic cost analysis in type systems. The result is, to our knowledge, the first type system to unify these two ideas, enabling symbolic energy bounds for embedded systems without invasive changes to programmer workflow. By embedding peripheral typestate directly into the type system, we model a broad class of peripherals without restrictive assumptions, and since the analysis is part of the type system, programmers need not integrate external tools or provide custom peripheral implementations to obtain energy bounds.
 
-
 \section{Background and Related Work}
 We organize related work around three pillars: WCEC analysis, peripheral typestate, and resource-aware type systems, as well as an approach that combines some of these ideas. 
 
-Our goal is to provide a tight, peripheral-aware bound on the WCEC of embedded systems. Recent prior work for this problem has typically followed the same high level structure: enumerate all possible runtime behaviors, and then translate to a formal constraint-based problem that can be solved with knowledge about the specific hardware that is being executed. \cite{Wagemann2022, raffeck_et_al_OASIcs_WCET_2019_4,wegener_et_al_OASIcs_WCET_2023_9, 8847394} Typically, this enumeration is done via a static analysis. An approach that stands out is \textit{WoCA} \cite{woca} which enhances this enumeration by integrating peripherals and their modes of operation. In order for the analysis to be sound and provide accurate bounds, code must be written in a way that only activates one peripheral device at a time. Additionally, \textit{WoCA} requires custom device implementations for using their analysis, and does not consider processor energy costs. This means that programs that rely on the processor and do not use peripherals extensively will have incorrect bounds. 
+Our goal is to provide a tight, peripheral-aware bound on the WCEC of embedded systems. Recent prior work for this problem has typically followed the same high level structure: enumerate all possible runtime behaviors, and then translate to a formal constraint-based problem that can be solved with knowledge about the specific hardware that is being executed. \cite{Wagemann2022, raffeck_et_al_OASIcs_WCET_2019_4,wegener_et_al_OASIcs_WCET_2023_9, 8847394} Typically this enumeration is done via a static analysis. An approach that stands out is \textit{WoCA} \cite{woca} which enhances this enumeration by integrating peripherals and their modes of operation. In order for the analysis to be sound and provide accurate bounds, code must be written in a way that only activates one peripheral device at a time. Additionally, \textit{WoCA} requires custom device implementations for using their analysis, and does not consider processor energy costs. This means that programs that rely on the processor and do not use peripherals extensively will have incorrect bounds. 
 
 Another approach for analyzing resource consumption is through the usage of type systems. An established technique used is known as Automatic Amortized Resource Analysis (AARA) \cite{Hoffmann_Jost_2022}. The analysis uses type inference rules whose derivations serve as proofs of resource bounds. It first performs standard type inference and then infers resource annotations by solving a linear program based on the potential method of amortized analysis, with soundness proven via a cost semantics that defines program resource consumption. This has been used to obtain bounds on the consumption of a variety of resources such as time and memory usage for free, motivating our idea of building a type system for energy analysis. Such a type system can overcome the challenge of integrating a static analysis, while also providing robust WCEC bounds. However, AARA alone is insufficient. The authors of \cite{Hoffmann_Jost_2022} note that a major weakness of using this approach is that it lacks knowledge of peripheral behavior, which leaves it unable to address the first challenge of many prior WCEC works.
 
@@ -89,12 +88,12 @@ The program in the left column of Figure~\ref{fig:example} models a simple task 
 
 As seen in the right-hand column of Figure~\ref{fig:example}, we express energy bounds as symbolic cost expressions parameterized by peripheral state. Function costs remain parametric in the input state $\alpha$ until lazy concretization occurs. We generally have 3 types of cost expressions. $C(p: st)$, represents the cost of a peripheral being in a concrete state $st$, with $C(p: \alpha)$ being the unknown state version. $C(p: (st, st'))$ represents the cost of transitioning from one state to another, with $C(p: (\alpha, st'))$ being the unknown version. Our language always requires an explicit state for the target of a transition, so we always know at least the intended destination state. Finally, $C[\alpha \mapsto st]$ represents concretizing $C$ with state $st$. The full formal grammar is given in Figure~\ref{fig: symolic_energy_syntax}. 
 % \vspace{-10px}
-\begin{figure}[H]
+\begin{figure}
     \centering
    \[
     \begin{array}{lcll}
-     \text{Cost expression} & C  \bnfdef & C(p : st) \\ & \bnfalt & C(p : (st, st'))  \\ & \bnfalt & C(p : (\alpha, st))  \\
-     & \bnfalt & C(p : \alpha)  \\ & \bnfalt & \m{max}(C_1, C_2) \ \\ & \bnfalt & C_1 + C_2   \\ & \bnfalt & C[\alpha \mapsto st] 
+     \text{Cost expression} & \varepsilon  \bnfdef & C(p : st) \\ & \bnfalt & C(p : (st, st'))  \\ & \bnfalt & C(p : (\alpha, st))  \\
+     & \bnfalt & C(p : \alpha)  \\ & \bnfalt & \m{max}(\varepsilon_1, \varepsilon_2) \ \\ & \bnfalt & C[\alpha \mapsto st] \\ & \bnfalt & C \\ & \bnfalt & \varepsilon_1 + \varepsilon_2 
 \end{array}
    \]
    \caption{Symbolic Energy Cost Syntax}
@@ -104,7 +103,7 @@ As seen in the right-hand column of Figure~\ref{fig:example}, we express energy 
 
 We present our type system on a simple imperative language in Figure~\ref{fig: syntax} which includes explicit \texttt{transition} and \texttt{downgrade} statements for performing the state transitions as discussed previously. 
 
-\begin{figure}[h]
+\begin{figure}
     \[
 \begin{array}{lcll}
 \text{Peripheral Declarations: }p \bnfdef \ \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, st, D \}, p \ \vert \ \cdot 
@@ -130,22 +129,25 @@ We present our type system on a simple imperative language in Figure~\ref{fig: s
 \caption{Syntax}
 \label{fig: syntax}
 \end{figure}
-
-Our type system uses the following additional constructs: 
-
+Our type system uses additional constructs detailed in Figure ~\ref{fig:constructs}
+\begin{figure}
+    \centering
 \[
 \begin{array}{llcl}
 \textit{Typing Context} & \tctx \bnfdef \ x \rightarrow \tau, \tctx \bnfalt \cdot
 \\ 
 \textit{Types} & \tau \bnfdef \ \text{int} \bnfalt \text{bool} \bnfalt \text{unit} \bnfalt \rho \bnfalt \tau_1 \rightarrow \tau_2 
 \\
-    \textit{State Constraints} & \varphi \bnfdef \ \alpha = \Vec{st} \bnfalt \alpha \leq st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \\ & \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
-     \textit{Constraints} & \Phi  \bnfdef \ \varphi, \Phi \bnfalt \cdot  \\
+\textit{State Constraints} & \varphi \bnfdef \ \alpha = \Vec{st} \bnfalt \alpha \leq st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \\ & \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
+\textit{Constraints} & \Phi  \bnfdef \ \varphi, \Phi \bnfalt \cdot  \\
 \textit{Peripheral Context} & \pctx \bnfdef \  p \rightarrow [\alpha], \pctx \bnfalt \cdot
 \end{array}
 \]
+\caption{Constructs}
+\label{fig:constructs}
+\end{figure}
 
-We map each peripheral to a \textit{stack} of these state variables to support the lazy/eager concretization strategy mentioned before. Our typing judgment takes the following form: $\tctx, \pctx, \Phi, C \vdash c \rightarrow \tctx', \pctx', \Phi', C'$. The judgment means that given a typing context, peripheral context, a set of current constraints and a current cost, evaluating $c$ can update all four of these constructs. 
+We map each peripheral to a \textit{stack} of these state variables to support the lazy/eager concretization strategy mentioned before. Our typing judgment for commands takes the following form: $\tctx, \pctx, \Phi, C \vdash c \rightarrow \tctx', \pctx', \Phi', C'$. The judgment means that given a typing context, peripheral context, a set of current constraints and a current cost, evaluating $c$ can update all four of these constructs. 
 We present selected typing rules below:
 \begin{mathpar}
 \small
