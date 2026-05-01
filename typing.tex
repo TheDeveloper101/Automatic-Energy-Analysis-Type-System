@@ -248,8 +248,8 @@ s \hookrightarrow st \in x(D) \\
 \pctx = p : [\alpha_i] \\
 \tctx, x : \tau_1, \pctx, \cdot, f, \cdot \vdash c \rightarrow \pctx_f,\Phi_f, C, f_f \\
 \pctx_f(p) = \alpha_o \\
-\vec{s_1} = \m{solve}(\Phi_f|_{\alpha_i}) \\
-\vec{s_2} = \m{solve}(\Phi_f|_{\alpha_o}) \\
+\vec{s_1} = \m{solve}(\Phi_f|_{\alpha_i}) \\ \forall s \in \vec{s_1}, \text{stable}(s) \lor \forall s \in \vec{s_1}, \text{transient}(s) \\ 
+\vec{s_2} = \m{solve}(\Phi_f|_{\alpha_o}) \\ \forall s \in \vec{s_2}, \text{stable}(s) \\
 \tau_f = \tau_1 \rightarrow \tau_2 \\ \tctx, \pctx, f_f \vdash e: \tau_2, C_r(f_f) \\ C_f = C + C_r(f_f)
 }
 {
@@ -260,8 +260,9 @@ s \hookrightarrow st \in x(D) \\
 {
 \tctx(f) = \tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f' \\
 \alpha = \pctx(p) \\
-\vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\
-\vec{s} \subseteq \vec{s_1} \\
+\vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\  
+  (\Vec{s} \subseteq \Vec{s_1} \text{ if } \forall st \in \Vec{s}, \text{ stable}(st)) \lor
+  (\Vec{s} \cap \Vec{s_1} \neq \emptyset \text{ if }\forall st \in \Vec{s}, \text{ transient}(st)) \\ 
 \tctx,\pctx, f \vdash e : \tau_1, C_a(f) \\
 \alpha' \text{ fresh} \\
 \pctx'[p] = \alpha' :: \pctx[p] \\
