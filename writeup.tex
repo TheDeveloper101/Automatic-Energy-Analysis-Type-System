@@ -1,4 +1,4 @@
-\documentclass[sigconf,nonacm,screen,review]{acmart}
+\documentclass[sigconf, nonacm, screen]{acmart}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{mathpartir}
 \usepackage{listings}
@@ -20,35 +20,33 @@
 \section{Problem and Motivation}
 As IoT devices become increasingly prevalent, embedded systems operating in resource-constrained environments must carefully account for their energy requirements. These requirements are typically expressed as the \textit{worst-case energy consumption} (WCEC), the maximum possible energy consumed across any possible execution, and are obtained either through measurement-based profiling or static analysis techniques that reason over all possible program executions.
 
-Both approaches face significant challenges when peripheral devices such as sensors, radios, and actuators are involved. Peripherals maintain internal state that evolves based on the operations they perform, making them difficult to reason about. Measurement-based approaches, while realistic, struggle to generalize across different workloads and peripheral configurations. Static analyses offer stronger guarantees but demand accurate models of each system component.
+Both approaches face significant challenges when peripheral devices such as sensors, radios, and actuators are involved. Peripherals maintain internal state that evolves based on the operations they perform, making them difficult to reason about. Measurement-based approaches, while realistic, struggle to generalize across different platforms, peripheral configurations and workflows \cite{5993659, energy-analysis-np-hard}. Static analyses offer stronger guarantees but demand accurate system component models.
 
-The stateful nature of peripherals is a particular obstacle for static analysis. Existing static analyses are insufficient in two key ways: (1) peripherals are either unmodeled or modeled under overly restrictive assumptions, limiting applicability to a narrow class of devices and programs; and (2) existing tools impose significant workflow burden, requiring external tool integration or custom peripheral implementations from the programmer such as \cite{woca}.
+The stateful nature of peripherals is a particular obstacle for static analysis. Existing static analyses are insufficient in two key ways: (1) peripherals are either unmodeled or modeled under overly restrictive assumptions such as only turning on or off \cite{raffeck_et_al_OASIcs_WCET_2019_4}, limiting applicability to a narrow class of devices and programs; and (2) existing tools impose significant workflow burden, requiring external tool integration or custom peripheral implementations \cite{woca}.
 
-To address these limitations, we use the notion of \textit{peripheral typestate}, a type-level representation of a peripheral's modes of operation, and combine it with prior work on automatic cost analysis in type systems. The result is, to our knowledge, the first type system to unify these two ideas, enabling symbolic energy bounds for embedded systems without invasive changes to programmer workflow. By embedding peripheral typestate directly into the type system, we model a broad class of peripherals without restrictive assumptions, and since the analysis is part of the type system, programmers need not integrate external tools or provide custom peripheral implementations to obtain energy bounds.
+To address these limitations, we make use of \textit{typestate} for peripherals by encoding a type-level representation of a peripheral's modes of operation. While typestate is traditionally used to encode valid operations for a stateful object, it is also a natural choice for energy analysis as the power draw for a given peripheral depends on it's internal state. We combine it with prior work on automatic resource analysis in type systems \cite{Hoffmann_Jost_2022} resulting in, to our knowledge, the first type system to unify these two ideas, enabling symbolic energy bounds for embedded systems without invasive changes to programmer workflow. By combining both typestate and automatic cost analysis, we model a broad class of peripherals without restrictive assumptions. Since the analysis is part of the type system, programmers need not integrate external tools or provide custom peripheral implementations to obtain energy bounds.
 
 \section{Background and Related Work}
 We organize related work around three pillars: WCEC analysis, peripheral typestate, and resource-aware type systems, as well as an approach that combines some of these ideas. 
 
 Our goal is to provide a tight, peripheral-aware bound on the WCEC of embedded systems. Recent prior work for this problem has typically followed the same high level structure: enumerate all possible runtime behaviors, and then translate to a formal constraint-based problem that can be solved with knowledge about the specific hardware that is being executed. \cite{Wagemann2022, raffeck_et_al_OASIcs_WCET_2019_4,wegener_et_al_OASIcs_WCET_2023_9, 8847394} Typically this enumeration is done via a static analysis. An approach that stands out is \textit{WoCA} \cite{woca} which enhances this enumeration by integrating peripherals and their modes of operation. In order for the analysis to be sound and provide accurate bounds, code must be written in a way that only activates one peripheral device at a time. Additionally, \textit{WoCA} requires custom device implementations for using their analysis, and does not consider processor energy costs. This means that programs that rely on the processor and do not use peripherals extensively will have incorrect bounds. 
 
-Another approach for analyzing resource consumption is through the usage of type systems. An established technique used is known as Automatic Amortized Resource Analysis (AARA) \cite{Hoffmann_Jost_2022}. The analysis uses type inference rules whose derivations serve as proofs of resource bounds. It first performs standard type inference and then infers resource annotations by solving a linear program based on the potential method of amortized analysis, with soundness proven via a cost semantics that defines program resource consumption. This has been used to obtain bounds on the consumption of a variety of resources such as time and memory usage for free, motivating our idea of building a type system for energy analysis. Such a type system can overcome the challenge of integrating a static analysis, while also providing robust WCEC bounds. However, AARA alone is insufficient. The authors of \cite{Hoffmann_Jost_2022} note that a major weakness of using this approach is that it lacks knowledge of peripheral behavior, which leaves it unable to address the first challenge of many prior WCEC works.
+Another approach for analyzing resource consumption is through the usage of type systems. An established technique used is known as Automatic Amortized Resource Analysis (AARA) \cite{Hoffmann_Jost_2022}.The analysis associates costs to types that are found in the program, and derives resource bounds from type inference by solving a linear program based on the potential method of amortized analysis. The soundness of these bounds is proven via a cost semantics that defines program resource consumption. This has been used to obtain bounds on the consumption of a variety of resources such as time and memory usage for free, motivating our idea of building a type system for energy analysis. Such a type system can overcome the challenge of integrating a static analysis, while also providing robust WCEC bounds, which is why we use it as a foundation for cost analysis. However, AARA alone is insufficient. The authors of \cite{Hoffmann_Jost_2022} note that a major weakness of using this approach is that it lacks knowledge of peripheral behavior, which leaves it unable to address the first challenge of many prior WCEC works.
 
-This motivates our use of \textit{peripheral typestate}. AARA and similar approaches lack knowledge of the internal state of peripherals, which is highly complex and directly affects their behavior and energy consumption. An existing notion for capturing exactly this kind of behavior is \textit{typestate}: a type-level representation of the internal state of a stateful object. The Abacus framework \cite{abacus} applies this notion directly to peripherals, providing a Rust-embedded DSL that lets programmers specify peripheral states and valid operations, then automatically generates peripheral typestates enforced by the compiler. By incorporating the idea of typestate into our type system, we can address the modeling gap that AARA alone leaves open.
+This motivates our use of typestate. AARA and similar approaches lack knowledge of the internal state of peripherals, which is highly complex and directly affects their behavior and energy consumption. An existing notion for capturing exactly this kind of behavior is \textit{typestate}: a type-level representation of the internal state of a stateful object. The Abacus framework \cite{abacus} applies this notion directly to peripherals, providing a Rust-embedded DSL that lets programmers specify peripheral states and valid operations, then automatically generates peripheral typestates enforced by the compiler. By incorporating the idea of typestate into our type system, we can address the modeling gap that AARA alone leaves open. Rather than just having costs associated to types, we instead have costs associated to peripheral states, which we can represent in the type system by making use of typestate.
 
-Our goal is to derive tight symbolic energy bounds for embedded systems by tracking peripheral state directly within a type system in the style of AARA, obtaining these bounds for free. To our knowledge, the closest prior work to this idea is Performal \cite{performal}, which analyzes latency in distributed systems by modeling nodes as state machines. Like peripherals, distributed nodes have complex internal state whose behavior and transition costs depend heavily on current state, and Performal derives latency bounds by tracking both. However, rather than adopting an external proof framework like what Performal does, we integrate this analysis directly into a type system.
+Our goal is to derive tight symbolic energy bounds for embedded systems by tracking peripheral state directly within a type system in the style of AARA, obtaining these bounds for free. Since typestate embeds state in the type level, and AARA is able to derive bounds through type inference, we are able to combine the two ideas effectively together. To our knowledge, the closest prior work to this idea is Performal \cite{performal}, which analyzes latency in distributed systems by modeling nodes as state machines. Like peripherals, distributed nodes have complex internal state whose behavior and transition costs depend heavily on current state, and Performal derives latency bounds by tracking both. However, rather than adopting an external proof framework like what Performal does, we integrate this analysis directly into a type system. The key insight is that we can use typestate to provide precise peripheral state information, and AARA to provide precise cost information. By combining the two, we can then accurately report cost bounds. 
 
 \section{Approach and Uniqueness}
+
+Our type system has two main goals: keeping track of peripheral state as accurately as possible, and using this information to provide symbolic energy cost bounds. Our type system achieves these goals through a novel approach that combines typestate with cost analysis to provide precise bounds. 
 \subsection{Approach Overview}
-Our type system has two main goals: keeping track of peripheral state as accurately as possible, and using this information to provide symbolic energy cost bounds. Our type system achieves these goals through a novel approach to using peripheral typestate in our cost analysis. 
+We have 3 main costs to consider: costs from executing statements of code on the processor, costs from using peripherals, and costs from active peripherals in the background. The usage of typestate helps us to reason about the second and third cost categories in particular, as peripherals use a different amount of power based on the current mode of operation. A naive approach that assumes worst-case power consumption throughout would produce bounds that are sound but far too conservative to be useful. Precise symbolic bounds therefore require knowing exactly which state each peripheral occupies at each program point. We model peripheral state as a lattice with downgrading policies. In our lattice structure, the partial order $s_1 \leq s_2$ encodes that a peripheral in state $s_1$ can transition to the state $s_2$. However peripherals do not solely move up the lattice. Commonly, peripherals return to a prior state upon completing an operation. We model these ``backwards transitions'' via downgrade policies, $s_2 \hookrightarrow s_1$. This is essentially like a state machine, but we use the lattice structure for ease of modeling. 
 
-To derive precise symbolic energy bounds, the analysis must account for several sources of energy consumption. These sources can be split into three main categories: costs from executing statements of code on the processor, costs from using peripherals, and costs from active peripherals in the background. The usage of typestate helps us to reason about the second and third cost categories in particular, as peripherals use a different amount of power based on the current mode of operation. A naive approach that assumes worst-case power consumption throughout would produce bounds that are sound but far too conservative to be useful. Precise symbolic bounds therefore require knowing exactly which state each peripheral occupies at each program point.
-
-To track peripheral state precisely, we start by noticing that many peripheral states obey a natural implicit ordering. For example, in order for a sensor to be initialized, it must be turned on. To encode this, we represent the typestate of a peripheral as a lattice of states, where $s_1 \leq s_2$ means that a peripheral in state $s_1$ is allowed to transition to state $s_2$. We represent this in our code by \texttt{transition}$(p, st)$. However peripherals do not solely move up the lattice. Commonly, peripherals return to a prior state upon completing an operation. We model these ``backwards transitions'' via downgrade policies, $s_2 \hookrightarrow s_1$. These are represented in our code by \texttt{downgrade}$(p, st)$. 
-
-While the lattice gives us the structure to reason about peripheral states, requiring explicit annotations at every transition would be burdensome and error-prone. Instead, we use type inference. Each time a peripheral transitions to a new state, we introduce a fresh state variable $\alpha$---analogous to type variables---and push it onto a stack associated with that peripheral. Additionally, we  add constraints to ensure that the state variable represents a valid peripheral state for the transition. We refer to the process of substituting state variables for concrete states as ``concretization.'' When we are done analyzing a function, we concretize all state variables except the one at the bottom of the stack, which we refer to as eager concretization. The bottom-of-stack variable represents the peripheral's state at function entry. Therefore, it is concretized at the call site, where the caller has precise knowledge of the peripheral's initial state. We refer to this as lazy concretization. This prevents overly conservative bounds: eagerly resolving intermediate states avoids unnecessary uncertainty, while deferring entry-state concretization keeps function costs parametric until the call-site, where more precise information may be available. We illustrate this using a running example.
+To accurately report costs, we need to determine what cost is associated to the peripheral and what is associated to the main board. To do this, we broadly have 3 types of cost expressions. $C(p: st)$, represents the cost that depends on a peripheral $p$ existing in a concrete state. $C(p: (st, st'))$ represents a cost that depends on a peripheral $p$  transitioning from one state to another. Additionally, we represent fixed costs are by $C$ in our cost syntax, adding a subscript if necessary. We use the $\m{max}$ operation to represent the cost over branches where we cannot determine statically what will be taken. Our language always requires an explicit state for the target of a transition, so we always know at least the intended destination state. We will illustrate this with a running example.
 
 \paragraph{Running Example.}
-The program in the left column of Figure~\ref{fig:example} models a simple task using a temperature sensor as a peripheral. The lattice for the temperature sensor is as follows: $\langle \texttt{Off}, \texttt{Idle}, \texttt{Measure} \rangle$ where $\texttt{Off} \leq \texttt{Idle} \leq \texttt{Measure}$. It also has downgrade policies $\texttt{Measure} \hookrightarrow \texttt{Off}$ and $\texttt{Idle} \hookrightarrow \texttt{Off}$. The function \texttt{log\_data} takes a temperature sensor, and then transitions to the \texttt{Measure} state. Afterwards, it performs a measurement and conditionally writes to a variable. Finally, it powers the sensor down before returning. In the main function, we initialize the temperature sensor, and then call the \texttt{log\_data} function. We use this example to demonstrate how our type system tracks peripheral state and derives symbolic energy bounds using the right column. 
+The program in the left column of Figure~\ref{fig:cost_analysis_example} models a simple task using a temperature sensor as a peripheral. The function \texttt{log\_data} takes a temperature sensor, and then transitions to the \texttt{Measure} state. Afterwards, it performs a measurement and conditionally writes to a variable. Finally, it powers the sensor down before returning. The lattice for the temperature sensor is $\langle \texttt{Off}, \texttt{Idle}, \texttt{Measure} \rangle$ where $\texttt{Off} \leq \texttt{Idle} \leq \texttt{Measure}$. It also has downgrade policies $\texttt{Measure} \hookrightarrow \texttt{Off}$ and $\texttt{Idle} \hookrightarrow \texttt{Off}$. In the example, we represent transitions by \texttt{transition}$(\text{temp}, \texttt{Measure})$. Downgrading is represented  by \texttt{downgrade}$(\text{temp}, \texttt{Off})$. To perform the cost analysis, we first analyze each statement individually, and obtain a cost expression. We then add the cost of any active peripherals in the background. Finally, at the end of a function, we combine all of the cost constraints together to obtain the total cost of executing the function.
 \begin{figure}
 \centering
 \small
@@ -59,7 +57,7 @@ The program in the left column of Figure~\ref{fig:example} models a simple task 
 \hline
 1 & \texttt{fn log\_data(temp) -> u64 \{} & \\
 2 & \ \texttt{transition(temp, Measure)} & $C(\text{temp}: (\alpha_0, \text{Measure}))$ \\
-3 & \ \texttt{let res = temp.measure()} & $C(\text{temp}: \text{Measure})$ \\
+3 & \ \texttt{let res = temp.measure()} & $C_m + C(\text{temp}: \text{Measure})$ \\
 4 & \ \texttt{let t = 0} & $C_v + C(\text{temp}: \text{Measure})$ \\
 5 & \ \texttt{if(res == 65) \{} & \\
 6 & \quad \texttt{let t = 1} & $\text{max}(C_v, 0) + C(\text{temp}: \text{Measure})$ \\
@@ -71,40 +69,77 @@ The program in the left column of Figure~\ref{fig:example} models a simple task 
 \multicolumn{3}{|l|}{$\texttt{log\_data} \text{ cost} = C_l = C(\text{temp}: (\alpha_0, \text{Measure})) + 3C(\text{temp}: \text{Measure})$} \\
 \multicolumn{3}{|l|}{$\phantom{C_l} + \ C_v + \text{max}(C_v, 0) + C(\text{temp}: (\text{Measure}, \text{Off}))$} \\
 \hline
-1 & \texttt{fn main() \{} & \\
-2 & \ \texttt{transition(temp, Idle)} & $C(\text{temp}: (\alpha_1, \text{Idle}))$ \\
-3 & \ \texttt{let t = log\_data(temp)} & $C_l[\alpha_0 \mapsto \text{Idle}]$ \\
-4 & \texttt{\}} & \\
-\hline
-\multicolumn{3}{|l|}{\textit{Total cost} $= C(\text{temp}: (\alpha_1, \text{Idle}))[\alpha_1 \mapsto \text{Off}]$} \\
-\multicolumn{3}{|l|}{$\phantom{\text{Total cost}} + \ C(\text{temp}: (\text{Idle}, \text{Measure})) + 3C(\text{temp}: \text{Measure})$} \\
-\multicolumn{3}{|l|}{$\phantom{\text{Total cost}} + \ C_v + \text{max}(C_v, 0)$} \\
-\multicolumn{3}{|l|}{$\phantom{\text{Total cost}} + \ C(\text{temp}: (\text{Measure}, \text{Off}))$} \\
-\hline
 \end{tabular}
 \caption{Running Example with Cost Analysis}
-\label{fig:example}
+\label{fig:cost_analysis_example}
 \end{figure}
 
-As seen in the right-hand column of Figure~\ref{fig:example}, we express energy bounds as symbolic cost expressions parameterized by peripheral state. Function costs remain parametric in the input state $\alpha$ until lazy concretization occurs. We generally have 3 types of cost expressions. $C(p: st)$, represents the cost of a peripheral being in a concrete state $st$, with $C(p: \alpha)$ being the unknown state version. $C(p: (st, st'))$ represents the cost of transitioning from one state to another, with $C(p: (\alpha, st'))$ being the unknown version. Our language always requires an explicit state for the target of a transition, so we always know at least the intended destination state. Finally, $C[\alpha \mapsto st]$ represents concretizing $C$ with state $st$. The full formal grammar is given in Figure~\ref{fig: symolic_energy_syntax}. 
-% \vspace{-10px}
+\paragraph{State Inference} In the example, we use $C(\text{temp}: (\alpha_0, \text{Measure}))$ as the first cost expression, which is not something that was mentioned previously. The issue is that when we analyze \texttt{log\_data()} on it's own, we have no knowledge about the state of the temperature sensor. The cost of this function therefore depends on the entry state of the temperature sensor, which we only know when \texttt{log\_data()} is actually used in the program. One way to provide this insight is to provide annotations for peripherals. While the lattice gives us the structure to reason about peripheral states, requiring explicit annotations at every function would be burdensome and error-prone. Instead, we use a variation of type inference that we call \textit{state inference}. To motivate our usage of state inference, we will consider the examples in Figure ~\ref{fig:usage_example}. 
+
+\begin{figure}[h]
+\small
+    \centering
+    \begin{minipage}{0.45\linewidth}
+\begin{verbatim}
+fn main() {
+  transition(temp, Idle);
+  let t = log_data(temp);
+}
+\end{verbatim}
+    \end{minipage}
+    \hfill
+\begin{minipage}{0.45\linewidth}
+\begin{verbatim}
+fn main() {
+  transition(temp, Idle);
+   transition(temp, Measure);
+  let m = temp.measure();
+  let t = log_data(temp);
+}
+\end{verbatim}
+\end{minipage}
+    \caption{Usage example}
+\label{fig:usage_example}
+\end{figure}
+
+In this example, we use $\texttt{log\_data()}$ in two different ways. On the left hand side, we first transition the temperature sensor from $\texttt{Off}$ to $\texttt{Idle}$ and on the right, we have an additional transition from $\texttt{Idle}$ to $\texttt{Measure}$. Both possible use cases of $\texttt{log\_data()}$ are valid, since a programmer may want to take additional measurements before calling the \texttt{log\_data()} function. Requiring programmers to annotate the entry state of peripherals on functions would force a programmer to choose between whether a peripheral should be in either the \texttt{Idle} or the \texttt{Measure} state at the start of \texttt{log\_data()}. While having some sort of state polymorphism can help with this, it can lead to programmers being overly conservative, therefore leading to bounds that are not as precise as they could be.
+
+We use Figure ~\ref{fig:concretization-and-inference} as our running example for state inference. 
+
+\begin{figure}[h]
+  \centering
+  \small
+  \begin{tabular}{ll}
+    \texttt{fn main() \{} & temp = $[\alpha'_0]$\\
+    \texttt{\quad transition(temp, Idle);} & temp = $[\alpha'_1 :: \alpha'_0],$ \\ \text{} & $\Phi = \alpha'_1 = \texttt{Idle} \land \alpha'_0 \leq \alpha'_1$ \\
+    \texttt{\quad let t = log\_data(temp);} & $\m{solve}(\alpha'_1, \Phi \land \alpha'_1 \leq \texttt{Measure}) = \texttt{Idle}$ \\
+    \texttt{\}} & temp = $[\texttt{Idle} :: \texttt{Off}]$\\
+  \end{tabular}
+  \caption{Concretization and Inference Example.}
+  \label{fig:concretization-and-inference}
+\end{figure}
+
+% Each time a peripheral transitions to a new state, we introduce a fresh state variable $\alpha$---analogous to type variables---and push it onto a stack associated with that peripheral. We represent this stack with $[\alpha]$. Additionally, we  add constraints to ensure that the state variable represents a valid peripheral state for the transition. We refer to the process of substituting state variables for concrete states as ``concretization.'' When we are done analyzing a function, we concretize all state variables except the one at the bottom of the stack, which we refer to as eager concretization. The bottom-of-stack variable represents the peripheral's state at function entry. Therefore, it is concretized at the call site, where the caller has precise knowledge of the peripheral's initial state. We refer to this as lazy concretization. This prevents overly conservative bounds: eagerly resolving intermediate states avoids unnecessary uncertainty, while deferring entry-state concretization keeps function costs parametric until the call-site, where more precise information may be available. We illustrate this using a running example.
 \begin{figure}
+\small
     \centering
    \[
     \begin{array}{lcll}
-     \text{Cost expression} & \varepsilon  \bnfdef & C(p : st) \\ & \bnfalt & C(p : (st, st'))  \\ & \bnfalt & C(p : (\alpha, st))  \\
-     & \bnfalt & C(p : \alpha)  \\ & \bnfalt & \m{max}(\varepsilon_1, \varepsilon_2) \ \\ & \bnfalt & C[\alpha \mapsto st] \\ & \bnfalt & C \\ & \bnfalt & \varepsilon_1 + \varepsilon_2 
+     \text{Cost expression }\varepsilon & \bnfdef & C(p : st) \\ & \bnfalt & C(p : (st, st'))  \\ & \bnfalt & C(p : (\alpha, st))  \\
+     & \bnfalt & C(p : \alpha)  \\ & \bnfalt & \m{max}(\varepsilon_1, \varepsilon_2) \ \\ & \bnfalt & C[\alpha \mapsto st] \\ & \bnfalt & C \quad \bnfalt \quad \varepsilon_1 + \varepsilon_2 
 \end{array}
    \]
    \caption{Symbolic Energy Cost Syntax}
    \label{fig: symolic_energy_syntax}
 \end{figure}
+
+Whenever we start analyzing a function, we create a new state variable, in this case $\alpha'_0$, for the peripheral the function uses, which is \texttt{temp}. Every time we encounter a \texttt{transition} statement, we create a new state variable $\alpha$---analogous to type variables---and push it onto a stack associated with that peripheral. We represent this stack with $[\alpha]$. This maintains an SSA-like property and allows for us to understand how the peripheral state evolves through time. Because we transition to the \texttt{Idle} state, we add the constraint that $\alpha'_0 \leq \alpha'_1$ since that is required for the transition to be valid. When we encounter the \texttt{log\_data} function call, we combine the constraints we have collected thus far with any constraints known within \texttt{log\_data}. In this case, we know that \texttt{temp} will transition into the \texttt{Measure} state, so we have the constraint that $\alpha_0 \leq \texttt{Measure}$, where $\alpha_0$ is the state of $\texttt{temp}$ on entry to \texttt{log\_data}. We rename $\alpha_0$ to be $\alpha'_1$ since $\alpha'_1$ refers to the current state of the temperature sensor. Then, we take all of those constraints and solve for them giving the solution $\alpha'_1 = \texttt{Idle}$. We refer to this process as \textit{lazy} concretization of $\alpha_0$ since we chose not to solve for it until \texttt{log\_data} was called and we had additional information about the temperature sensor's state. On the flip side, we were immediately able to solve for the state of the peripheral after line 8 in \texttt{log\_data} since the peripheral's state only depends on the state of the peripheral after line 2 which is fully known. This is what we refer to as \textit{eager} concretization. Using this information, it allows us to derive the following bound on the energy consumption of \texttt{main}: $C(\text{temp}: (\texttt{Off}, \texttt{Idle})) + C_l[\alpha_0 \mapsto \texttt{Idle}]$ where $C_l$ refers to the cost bound for \texttt{log\_data} derived earlier. At the very end of \texttt{main}, we specify that the final state of the temperature sensor is $[\texttt{Idle} :: \texttt{Off}]$. This is because we only consider the states of the temperature sensor in the \texttt{main} function, since the same state inference is able to determine the states within the \texttt{log\_data()} function.
+
 \subsection{Type System.} 
-
-We present our type system on a simple imperative language in Figure~\ref{fig: syntax} which includes explicit \texttt{transition} and \texttt{downgrade} statements for performing the state transitions as discussed previously. 
-
+Guided by our examples in Figures~\ref{fig:usage_example}, \ref{fig:concretization-and-inference}, we present a core calculus to formalize this reasoning. Our syntax is shown in Figure~\ref{fig: syntax}. We include explicit \texttt{transition} and \texttt{downgrade} statements so that programmers can control when peripherals perform a state transition. To support dynamically inspecting peripheral state and performing actions based on it, we include a form of state ``pattern matching'' via $\texttt{match } p \texttt{ with } st_1 \mid \dots \mid st_n$. 
 \begin{figure}
-    \[
+\small
+\[
 \begin{array}{lcll}
 \text{Peripheral Declarations: }p \bnfdef \ \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, st, D \}, p \ \vert \ \cdot 
 \end{array}
@@ -116,21 +151,20 @@ We present our type system on a simple imperative language in Figure~\ref{fig: s
 \]
 \[
 \begin{array}{lcll}
-\text{Commands: }c & \bnfdef & \text{let } x = e & \\ & \bnfalt & \text{let } x = f(e, p) \\ & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2  \\ & \bnfalt & \text{transition}(x, \text{st})  \\ & \bnfalt & \text{downgrade}(x, \text{st}) \\ & \bnfalt & \text{clock}()  \\ & \bnfalt & \text{match }p \text{ with } \text{st}_1 \rightarrow c_1 | \dots | \text{ st}_n \rightarrow c_n  \\ & \bnfalt & c_1; c_2 
+\text{Commands: }c & \bnfdef & \text{let } x = e & \\ & \bnfalt & \text{let } x = f(e, p) \\ & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2  \\ & \bnfalt & \text{transition}(x, \text{st})  \\ & \bnfalt & \text{downgrade}(x, \text{st}) \\ & \bnfalt & \text{clock}() \\ & \bnfalt & \text{match }p \text{ with } \text{st}_1 \rightarrow c_1 | \dots | \text{ st}_n \rightarrow c_n  \\ & \bnfalt & c_1; c_2 
 \end{array}
 \]
 \[
 \begin{array}{lcll}
-\text{Expressions: }e & \bnfdef & x \\
-    & \bnfalt & v  \\
-    & \bnfalt & e_1 \text{ binop } e_2 
+\text{Expressions: }e & \bnfdef & x \ \bnfalt \ v \ \bnfalt \ e_1 \text{ binop } e_2 
 \end{array}
 \]
 \caption{Syntax}
 \label{fig: syntax}
 \end{figure}
-Our type system uses additional constructs detailed in Figure ~\ref{fig:constructs}
+
 \begin{figure}
+\small
     \centering
 \[
 \begin{array}{llcl}
@@ -146,88 +180,90 @@ Our type system uses additional constructs detailed in Figure ~\ref{fig:construc
 \caption{Constructs}
 \label{fig:constructs}
 \end{figure}
+Our type system uses additional constructs detailed in Figure ~\ref{fig:constructs}. We include the type $\rho$ to refer to peripheral devices, so that we are able to determine when we are performing operations that involve them. We assume a rust-like ownership model, so aliasing is not a concern. Our typing judgment for commands takes the following form: $\tctx, \pctx, \Phi, C \vdash c \rightarrow \tctx', \pctx', \Phi', C'$. The judgment means that given a typing context, peripheral context, a set of current constraints and a current cost, evaluating $c$ can update all four of these constructs. The typing rules for \texttt{transition} and \texttt{downgrade} maintain the SSA-like property and add fresh state variables to the peripheral's variable stack. Additionally, they add relevant constraints to $\Phi$ so that inference can be performed. At function declarations, the type system checks the body, performs eager concretization where possible, and collects necessary constraints to be used at function calls. At the function call site, constraints from the declaration are combined with current peripheral constraints to perform lazy concretization. Finally, the sequencing rule combines costs together, as well as adds the result of the background cost of any active peripherals that may exist. 
 
-We map each peripheral to a \textit{stack} of these state variables to support the lazy/eager concretization strategy mentioned before. Our typing judgment for commands takes the following form: $\tctx, \pctx, \Phi, C \vdash c \rightarrow \tctx', \pctx', \Phi', C'$. The judgment means that given a typing context, peripheral context, a set of current constraints and a current cost, evaluating $c$ can update all four of these constructs. 
-We present selected typing rules below:
-\begin{mathpar}
-\small
-\inferrule*[left=T-Seq]
-{
-\tctx,\pctx,\Phi, C \vdash c_1 :
-\tau_1
-\rightarrow
-\tctx',\pctx', \Phi', C' \\ \tctx',\pctx',\Phi', C' \vdash c_2:
-\tau_2
-\rightarrow
-\tctx'',\pctx'', \Phi'', C'' \\ C^* = C' + C'' + \m{cost}(\pctx) 
-}
-{
-\tctx,\pctx, \Phi, C \vdash
-c_1 ; c_2 :
-\tau_2
-\rightarrow
-\tctx'',\pctx'', \Phi'', C^*
-}
+% We map each peripheral to a \textit{stack} of these state variables to support the lazy/eager concretization strategy mentioned before. Our typing judgment for commands takes the following form: $\tctx, \pctx, \Phi, C \vdash c \rightarrow \tctx', \pctx', \Phi', C'$. The judgment means that given a typing context, peripheral context, a set of current constraints and a current cost, evaluating $c$ can update all four of these constructs. 
+% We present selected typing rules below:
+% \begin{mathpar}
+% \small
+% \inferrule*[left=T-Seq]
+% {
+% \tctx,\pctx,\Phi, C \vdash c_1 :
+% \tau_1
+% \rightarrow
+% \tctx',\pctx', \Phi', C' \\ \tctx',\pctx',\Phi', C' \vdash c_2:
+% \tau_2
+% \rightarrow
+% \tctx'',\pctx'', \Phi'', C'' \\ C^* = C' + C'' + \m{cost}(\pctx) 
+% }
+% {
+% \tctx,\pctx, \Phi, C \vdash
+% c_1 ; c_2 :
+% \tau_2
+% \rightarrow
+% \tctx'',\pctx'', \Phi'', C^*
+% }
 
-\inferrule*[left=T-Transition] 
-{ \tctx, \pctx, \Phi, C \vdash x : \rho \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C + C(p : (\alpha_0, st))
-} 
-{ 
-\tctx, \pctx,\Phi, C \vdash \text{transition}(x, st) : \text{unit} \rightarrow \tctx, \pctx', \Phi', C' 
-}
+% \inferrule*[left=T-Transition] 
+% { \tctx, \pctx, \Phi, C \vdash x : \rho \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C + C(p : (\alpha_0, st))
+% } 
+% { 
+% \tctx, \pctx,\Phi, C \vdash \text{transition}(x, st) : \text{unit} \rightarrow \tctx, \pctx', \Phi', C' 
+% }
 
-\inferrule*[left=T-Downgrade]
-{
-\tctx, \pctx, \Phi, C \vdash x : \rho \\ s \hookrightarrow st \in x(D) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C + C(p : (\alpha_0, st)) 
-}
-{
-\tctx,\pctx, \Phi, C \vdash
-\text{downgrade}(x,st) :
-\text{unit}
-\rightarrow
-\tctx, \pctx', \Phi',C'
-}
+% \inferrule*[left=T-Downgrade]
+% {
+% \tctx, \pctx, \Phi, C \vdash x : \rho \\ s \hookrightarrow st \in x(D) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C + C(p : (\alpha_0, st)) 
+% }
+% {
+% \tctx,\pctx, \Phi, C \vdash
+% \text{downgrade}(x,st) :
+% \text{unit}
+% \rightarrow
+% \tctx, \pctx', \Phi',C'
+% }
 
-\inferrule*[left=T-FunDecl] 
-{ \alpha_{\text{in}} \text{ fresh} \\ \pctx = p : [\alpha_{\text{i}}] \\ \tctx, \pctx, \cdot, \cdot \vdash c \rightarrow \pctx_f, \Phi_f, C_f \\ \pctx_f(p) = \alpha_{\text{o}} \\ \Vec{st} = \m{solve}(\Phi_f \setminus \Phi_f|_{\alpha_i}) \\ C = C_f[\Vec{st}] \\ \Vec{s_1} = \m{solve}(\Phi_f|_{\alpha_{\text{i}}}) \\ \Vec{s_2} = \m{solve}(\Phi_f|_{\alpha_{\text{o}}}) \\ \tau_f = \tau_1 \rightarrow \tau_2
-} 
-{ \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, C, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2} }
+% \inferrule*[left=T-FunDecl] 
+% { \alpha_{i} \text{ fresh} \\ \pctx = p : [\alpha_i] \\  \tctx, x : \tau_1, \pctx, \cdot, \cdot \vdash c \rightarrow \pctx_f, \Phi_f, C_f \\ \pctx_f(p) = \alpha_{\text{o}} \\ \Vec{st} = \m{solve}(\Phi_f \setminus \Phi_f|_{\alpha_i}) \\ C = C_f[\Vec{st}] \\ \Vec{s_1} = \m{solve}(\Phi_f|_{\alpha_{\text{i}}}) \\ \Vec{s_2} = \m{solve}(\Phi_f|_{\alpha_{\text{o}}}) \\ \tau_f = \tau_1 \rightarrow \tau_2
+% } 
+% { \tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, C, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2} }
 
-\inferrule*[ left=T-Call]
-{
-\tctx(f)=
-\tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2}
-\\ \alpha = \pctx(p) \\ \m{rename}(\Phi_f|_{\alpha_i}, \alpha) \\ 
-\tctx,\pctx,\Phi, P \vdash e : \tau_1, C_a \\ \alpha' \text{ fresh} \\ \Vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'[p] = \alpha' :: \pctx[p] \\ C' = C_f[\Vec{s}] + C_a  \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} 
-}
-{
-\tctx,\pctx, \Phi, C \vdash
-\text{let } x = f(e,p) :
-\text{unit}
-\rightarrow
-\tctx[x:\tau_2], \pctx', \Phi', C'
-}
+% \inferrule*[ left=T-Call]
+% {
+% \tctx(f)=
+% \tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \Vec{s_1}, \Vec{s_2}
+% \\ \alpha = \pctx(p) \\ \m{rename}(\Phi_f|_{\alpha_i}, \alpha) \\ 
+% \tctx,\pctx,\Phi, P \vdash e : \tau_1, C_a \\ \alpha' \text{ fresh} \\ \Vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'[p] = \alpha' :: \pctx[p] \\ C' = C_f[\Vec{s}] + C_a  \\ \Phi' = \Phi \land \alpha \subseteq \Vec{s_1} \land \alpha' \subseteq \Vec{s_2} 
+% }
+% {
+% \tctx,\pctx, \Phi, C \vdash
+% \text{let } x = f(e,p) :
+% \text{unit}
+% \rightarrow
+% \tctx[x:\tau_2], \pctx', \Phi', C'
+% }
 
-\end{mathpar}
-\begin{mathpar}
-    \small
+% \end{mathpar}
+% \begin{mathpar}
+%     \small
 
-\end{mathpar} 
+% \end{mathpar} 
 
-\textsc{T-Seq} is our primary rule for composing costs. While we can simply thread the cost through, as mentioned before we need to consider the cost of active but non-operating peripherals. We represent this background cost by $\m{cost}(\pctx)$, which is a shorthand for the summation of the current state variable of each active peripheral. In our example, since we only have the temperature sensor, the background cost is represented by the addition of $C(\text{temp}: \texttt{Measure})$. 
+% \textsc{T-Seq} is our primary rule for composing costs. While we can simply thread the cost through, as mentioned before we need to consider the cost of active but non-operating peripherals. We represent this background cost by $\m{cost}(\pctx)$, which is a shorthand for the summation of the current state variable of each active peripheral. In our example, since we only have the temperature sensor, the background cost is represented by the addition of $C(\text{temp}: \texttt{Measure})$. 
 
-\textsc{T-Transition} and \textsc{T-Downgrade} are  rules for peripheral state updates. Both rules maintain an SSA-like property, creating a fresh state variable and adding corresponding constraints on each peripheral state update. When we add the cost to our energy expression, we add a cost expression parametric in the current state variable, to be concretized later. In our running example, this is represented by $C(\text{temp}: (\alpha_0, \texttt{Measure}))$
+% \textsc{T-Transition} and \textsc{T-Downgrade} are  rules for peripheral state updates. Both rules maintain an SSA-like property, creating a fresh state variable and adding corresponding constraints on each peripheral state update. When we add the cost to our energy expression, we add a cost expression parametric in the current state variable, to be concretized later. In our running example, this is represented by $C(\text{temp}: (\alpha_0, \texttt{Measure}))$
 
-\textsc{T-FunDecl} is the most complex rule in the type system. We want to derive a symbolic energy expression describing the behavior of the function. We eagerly concretize state variables that do not depend on the initial state, since their behavior is fully known within the declaration itself. Upon completing the analysis, we return four additional pieces of information alongside the function type: the expected input and output peripheral states, the unsolved constraints, and the partially concretized energy expression. The unsolved constraints are carried forward so that cost expressions can be fully concretized at call sites.
+% \textsc{T-FunDecl} is the most complex rule in the type system. We want to derive a symbolic energy expression describing the behavior of the function. We eagerly concretize state variables that do not depend on the initial state, since their behavior is fully known within the declaration itself. Upon completing the analysis, we return four additional pieces of information alongside the function type: the expected input and output peripheral states, the unsolved constraints, and the partially concretized energy expression. The unsolved constraints are carried forward so that cost expressions can be fully concretized at call sites.
 
-\textsc{T-Call} completes the analysis started in \textsc{T-FunDecl}. We rename the constraints carried from the function declaration to refer to the current peripheral state variable, then combine them with its current constraints. In our running example, this renaming allows us to use the knowledge that \texttt{temp} is \texttt{Idle}, yielding a fully concretized cost expression $C(\text{temp: (Idle, Measure)})$ for the initial transition. 
+% \textsc{T-Call} completes the analysis started in \textsc{T-FunDecl}. We rename the constraints carried from the function declaration to refer to the current peripheral state variable, then combine them with its current constraints. In our running example, this renaming allows us to use the knowledge that \texttt{temp} is \texttt{Idle}, yielding a fully concretized cost expression $C(\text{temp: (Idle, Measure)})$ for the initial transition. 
 
-For any cost expression that has not been concretized after analyzing all the functions, we concretize it to the highest state that respects all of its  constraints to obtain the tightest bound. In the running example, the very first transition in \texttt{main} will not be concretized since it is not called anywhere, so we set $\alpha_1 = \texttt{Off}$.
+% For any cost expression that has not been concretized after analyzing all the functions, we concretize it to the highest state that respects all of its  constraints to obtain the tightest bound. In the running example, the very first transition in \texttt{main} will not be concretized since it is not called anywhere, so we set $\alpha_1 = \texttt{Off}$.
 
 \section{Results and Contributions}
-Combining everything together gives a type system that automatically derives symbolic cost expressions for embedded systems with stateful peripherals, requiring no programmer annotations beyond peripheral lattice definitions. We are currently implementing this type system within the Abacus framework using Rust's proc-macros system \cite{rust_procedural_macros_reference}.We aim to integrate with standard peripherals and the Tock Real Time Operating System \cite{Levy2017-ii} to test the viability of our approach on real embedded systems. 
+Combining everything together gives a type system that automatically derives symbolic cost expressions for embedded systems with stateful peripherals, requiring no programmer annotations beyond peripheral lattice definitions. We are currently implementing this type system within the Abacus framework using Rust's proc-macros system \cite{rust_procedural_macros_reference}. We aim to integrate with standard peripherals and the Tock Operating System \cite{Levy2017-ii} to test our approach. 
 
-While we are effectively able to model stateful devices and processors, a significant source of processor energy cost depends on the clock frequency. Peripheral operations can change the clock speed, affecting processor costs. Our primary next steps are to enhance our analysis to account for varying clock speeds imposed by these operations. We include $\m{clock}()$ as a language construct to signal to the type system that the processor clock speed changes at this point. We can use this to separate programs into regions which are determined by a static clock speed. Then we can build up cost expressions for each region, and combine them together to create a \textit{symbolic energy property} that combines cost expressions across clock speed regions, capturing the total energy cost with varying clock speed. 
+Our next steps also include proving a soundness theorem. We are inspired by soundness theorems from previous AARA works. The goal is to show that any cost bounds our system provides is a true upper bound to the cost of executing the program. Notably, we report all of our costs symbolically to programmers reason about the energy behavior of their code in a hardware-agnostic manner. However, given a pre-existing energy model for an embedded device, programmers may instantiate these cost expressions for concrete bounds. We leave this investigation to future work. 
+
 
 \bibliographystyle{plain}
 \bibliography{ref}

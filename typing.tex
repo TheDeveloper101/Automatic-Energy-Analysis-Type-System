@@ -13,16 +13,12 @@ We present a simple imperative language.
 \]
 \[
 \begin{array}{lcll}
-\text{Commands: }c & \bnfdef & \text{let } x = e & \text{(let)} \\ 
-  & \bnfalt &\text{let } x = f(e, p) & \text{(function call)} \\ & \bnfalt & \text{atomic}\{p_1:\Vec{s_1}, \dots, p_n:\Vec{s_n} \}(c) & \text{(atomic)} \\ 
-  & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & \text{clock} & \text{(clock update)} \\ & \bnfalt & \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n & \text{(match)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
+\text{Commands: }c & \bnfdef & \text{let } x = e & \text{(let)} \\ & \bnfalt &\text{let } x = f(e, p) & \text{(function call)} \\ & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2 & \text{(branch)} \\ & \bnfalt & \text{transition}(x, \text{st}) & \text{(transition)} \\ & \bnfalt & \text{downgrade}(x, \text{st}) & \text{(downgrade)} \\ & \bnfalt & \text{clock} & \text{(clock update)} \\ & \bnfalt & \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n & \text{(match)} \\ & \bnfalt & c_1; c_2 & \text{(command seq)}
 \end{array}
 \]
 \[
 \begin{array}{lcll}
-\text{Expressions: }e & \bnfdef & x & \text{(variable)}  \\
-    & \bnfalt & v & \text{(value)} \\
-    & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operation)} 
+\text{Expressions: }e & \bnfdef & x & \text{(variable)}  \\ & \bnfalt & v & \text{(value)} \\ & \bnfalt & e_1 \text{ binop } e_2 & \text{(binary operation)} 
 \end{array}
 \]
 Our judgments use the following additional constructs. 
@@ -43,8 +39,6 @@ We also assume the existence of the cost functions
 $\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each peripheral being in the maximum possible state. 
 We assume that the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements. 
-
-For atomic regions, we assume the existence of a recovery system that can bring peripherals back to the states specified at the beginning of an atomic region (like Karma for example).
  
 \sai{new AARA system starts here}
 
@@ -89,7 +83,7 @@ We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx)
 {\pctx_1 \uplus \pctx_2 = \pctx_2 \uplus \pctx_1}
 \end{mathpar}
 
-We want to modell hardware-software concurrency as well. Following the lead of Abacus, we define transient states, which are states that represent when our peripheral is performing actions via hardware-initiated behavior (like interrupts). We update our language constructs in the following ways. First, we define the predicates transient($st$) and stable($st$) to specify when a state is either transient or stable. In more concrete terms, a state is transient if there is at least one \textbf{outgoing} transition that is hardware-initiated. To represent the concurrent behavior, we use an async/await syntax. We use capturing semantics to represent the idea that the peripheral is now executing concurrently and is not accessible to software. When we initiate an async call, the peripheral must be in a transient state, which is only possible from a software initiated transition. In order to model that transition into a transient state, we update the state inference constraint such that the new state must be a subset of $\{st\} \cup \text{HWReach}(st)$. What this means is that it must be a subset of the set of all reachable transient states from the state that is transitioned to. HWReach($st$) for a stable state $st$ is the empty set. When we typecheck an async command, we first solve for the input states and make sure the peripheral is in a transient state, then we typecheck the body of the asynchronous function - which represents the commands that are executed while in the transient state. Finally, we enforce that once the function is finished, the peripheral must transition back to a stable state. We then use the await construct to block execution until the thread has completed. However, blocking indefinitely would prevent us from being able to assign cost bounds to programs, as they can take abritrarily long periods of time. To get around this, we require that an await statement also includes a timeout and a fallback codeblock that executes once the timeout triggers. We then take the max cost of either triggering the timeout or completing execution. Finally, because a peripheral can now be in either a set of transient states, or a set of stable states, we require that a peripheral cannot be in a set of mixed states, i.e. both transient and stable. This means that anytime we check the state of a peripheral, it must either be all transient or all stable. Finally, we introduce $C_\text{transient}(p : \alpha)$ as a new cost, whic represents $\m{max}_{s \in \text{HWReach(}st\text{)}}(C(p : s))$ where $st$ = $\m{solve}(\alpha)$. We extend our language's commands to include the following:
+We want to model hardware-software concurrency as well. Following the lead of Abacus, we define transient states, which are states that represent when our peripheral is performing actions via hardware-initiated behavior (like interrupts). We update our language constructs in the following ways. First, we define the predicates transient($st$) and stable($st$) to specify when a state is either transient or stable. In more concrete terms, a state is transient if there is at least one \textbf{outgoing} transition that is hardware-initiated. To represent the concurrent behavior, we use an async/await syntax. We use capturing semantics to represent the idea that the peripheral is now executing concurrently and is not accessible to software. When we initiate an async call, the peripheral must be in a transient state, which is only possible from a software initiated transition. In order to model that transition into a transient state, we update the state inference constraint such that the new state must be a subset of $\{st\} \cup \text{HWReach}(st)$. What this means is that it must be a subset of the set of all reachable transient states from the state that is transitioned to. HWReach($st$) for a stable state $st$ is the empty set. When we typecheck an async command, we first solve for the input states and make sure the peripheral is in a transient state, then we typecheck the body of the asynchronous function - which represents the commands that are executed while in the transient state. Finally, we enforce that once the function is finished, the peripheral must transition back to a stable state. We then use the await construct to block execution until the thread has completed. However, blocking indefinitely would prevent us from being able to assign cost bounds to programs, as they can take abritrarily long periods of time. To get around this, we require that an await statement also includes a timeout and a fallback codeblock that executes once the timeout triggers. We then take the max cost of either triggering the timeout or completing execution. Finally, because a peripheral can now be in either a set of transient states, or a set of stable states, we require that a peripheral cannot be in a set of mixed states, i.e. both transient and stable. This means that anytime we check the state of a peripheral, it must either be all transient or all stable. Finally, we introduce $C_\text{transient}(p : \alpha)$ as a new cost, which represents $\m{max}_{s \in \text{HWReach(}st\text{)}}(C(p : s))$ where $st$ = $\m{solve}(\alpha)$. We extend our language's commands to include the following:
 \[
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & \dots \\ 
@@ -179,11 +173,33 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is
     }
 
 \end{mathpar}
-\newpage
-Our typing judgment is of the form: 
+Our typing judgment for commands is of the form: 
 $$ \begin{aligned}
     \fbox{$\tctx, \pctx, \Phi, C, f \vdash c \rightarrow \tctx', \pctx', \Phi', C', f'$}
 \end{aligned} $$
+Our typing judgment for expressions is of the form: 
+$$ \begin{aligned}
+    \fbox{$\tctx, \pctx \vdash e : \tau, C$}
+\end{aligned} $$
+
+\begin{mathpar}
+    \inferrule*[left=E-Var]
+    {
+    \tctx(x) = \tau
+    }
+    {
+    \tctx, \pctx \vdash x : \tau
+    }
+
+    \inferrule*[left=E-Binop]
+    {
+    \tctx, \pctx \vdash e_1 : \tau_1, C_1 \\ \tctx, \pctx \vdash e_2 : \tau_2, C_2 \\ \text{binop} : \tau_1 \times \tau_2 \rightarrow \tau \\ C_b = C_1 + C_2
+    }
+    {
+    \tctx, \pctx \vdash e_1 \text{ binop } e_2 : \tau, C_b
+    }
+\end{mathpar}
+
 \begin{mathpar}
 \inferrule*[left=T-Seq]
 {
@@ -270,6 +286,22 @@ s \hookrightarrow st \in x(D) \\
 }
 {
 \tctx,\pctx,\Phi,C, f \vdash \text{let } x = f(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
+}
+
+\inferrule*[left=T-Let]
+{
+\tctx, \pctx \vdash e : \tau, C_v \\ C' = C + C_v
+}
+{
+\tctx, \pctx, \Phi, C, f \vdash \text{let } x = e \rightarrow \tctx[x : \tau], \pctx, \Phi, C', f
+}
+
+\inferrule*[left=T-Match]
+{
+\pctx(p) = \alpha \\ \Vec{s} = \m{solve}(\Phi|_\alpha) \\ \forall i \in 1, \dots, n \ st_i \in \Vec{s} \\ \forall i \in 1, \dots, n, \tctx, \pctx, \Phi, C, f \vdash c_i \rightarrow \tctx_i, \pctx_i, \Phi_i, C_i, f_i \\ f' = \cup^n_{i = 1} f_i \\ C' = \m{max}(C_1, \dots, C_n) + C \\ \tctx' = \cup^n_{i = 1} \tctx_i \\ \pctx' = \cup^n_{i = 1} \pctx_i
+}
+{
+\tctx, \pctx, \Phi, C, f \vdash \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n \rightarrow \tctx', \pctx', \Phi', C', f' 
 }
 
 \end{mathpar}
