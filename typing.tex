@@ -183,7 +183,7 @@ $$ \begin{aligned}
 \end{aligned} $$
 
 \begin{mathpar}
-    \inferrule*[left=E-Var]
+    \inferrule*[left=T-Var]
     {
     \tctx(x) = \tau
     }
@@ -191,7 +191,7 @@ $$ \begin{aligned}
     \tctx, \pctx \vdash x : \tau
     }
 
-    \inferrule*[left=E-Binop]
+    \inferrule*[left=T-Binop]
     {
     \tctx, \pctx \vdash e_1 : \tau_1, C_1 \\ \tctx, \pctx \vdash e_2 : \tau_2, C_2 \\ \text{binop} : \tau_1 \times \tau_2 \rightarrow \tau \\ C_b = C_1 + C_2
     }
