@@ -111,11 +111,13 @@ We want to model hardware-software concurrency as well. Following the lead of Ab
     }
 \end{mathpar}
 
-We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $C$ is the stack of frames executing, $S$ is the map of peripherals to their state, and $T$ maps handles to a tuple $(p, c)$ which is the peripheral $p$ and the commands being executed. We model concurrent execution in a preemptive fashion. Our execution is instead a stack of frames, which each represent either a computation or a hole waiting for another thread to finish. We can spawn threads using $\m{async}$ which enter the thread pool, and the scheduler can non-deterministically choose a thread from the pool to be pushed onto the execution stack. We always execute commands from the top of the execution stack. We assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends. We can use this to model hardware concurrency and transient states, since while the peripheral is captured, it performs it's own operations that the main thread is oblivious to.
+We represent the machine state as a tuple $\Sigma ::= (M, T, C, S, K)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $C$ is the stack of frames executing, $S$ is the map of peripherals to their state, and $K$ is the current system clock. $T$ maps handles to a tuple $(p, c)$ which is the peripheral $p$ and the commands being executed. The operational semantic rules for commands take the following form: \fbox{$\Sigma \rightarrow \Sigma'$}
+
+We model concurrent execution in a preemptive fashion. Our execution is instead a stack of frames, which each represent either a computation or a hole waiting for another thread to finish. We can spawn threads using $\m{async}$ which enter the thread pool, and the scheduler can non-deterministically choose a thread from the pool to be pushed onto the execution stack. We always execute commands from the top of the execution stack. We assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends. We can use this to model hardware concurrency and transient states, since while the peripheral is captured, it performs it's own operations that the main thread is oblivious to.
 
 \[
 \begin{array}{llcl}
-\textit{Memory} & M & \bnfdef & x \mapsto v, M \bnfalt \cdot
+\textit{Memory} & M & \bnfdef & x \mapsto v, M \bnfalt (f \mapsto c; ret := e), M \bnfalt \cdot
 \\ 
 \textit{Thread Pool} & T & \bnfdef & tid \mapsto (p, c), T \bnfalt \cdot 
 \\
@@ -123,23 +125,22 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is
 \\
 \textit{Execution Context} & C & \bnfdef &  f, C \bnfalt \cdot
 \\
-\textit{Frame} & f & \bnfdef & (tid : p, c) \bnfalt \cdot
+\textit{Frame} & f & \bnfdef & (tid : p, \texttt{endif}) \bnfalt (tid: p, c) \bnfalt (tid : p, []; c) \bnfalt (tid : p, \text{let }x = []; c) \bnfalt \cdot
 \end{array}
 \]
-
 \begin{mathpar}
     \inferrule*[left=E-Seq]
     {
     c_1 \rightarrow c'_1
     }
     {
-    (M, T, (tid: p, c_1; c_2) :: C, S) \rightarrow (M, T, (tid: p, c'_1; c_2) :: C, S)
+    (M, T, (tid: p, c_1; c_2) :: C, S, K) \rightarrow (M, T, (tid: p, c'_1; c_2) :: C, S, K)
     }
 
     \inferrule*[left=E-SeqDone]
     { }
     {
-    (M, T, (tid: p, \text{skip}; c_2) :: C, S) \rightarrow (M, T, (tid: p, c_2) :: C, S)
+    (M, T, (tid: p, \text{skip}; c_2) :: C, S, K) \rightarrow (M, T, (tid: p, c_2) :: C, S, K)
     }
     
     \inferrule*[left=E-Async]
@@ -147,13 +148,13 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is
     tid \notin \m{dom}(T)
     }
     {
-    (M, T, (tid' : p, \text{let } tid = \text{async}(p) \ \{c_a\}) :: C, S) \rightarrow (M, T[tid \mapsto (p, c_a)], (tid' : p, \text{skip}) :: C, S)
+    (M, T, (tid' : p, \text{let } tid = \text{async}(p) \ \{c_a\}) :: C, S, K) \rightarrow (M, T[tid \mapsto (p, c_a)], (tid' : p, \text{skip}) :: C, S, K)
     }
     
     \inferrule*[left=E-AsyncPreempt]
     { }
     {
-    (M, T[tid \mapsto (p, c_a)], C, S) \rightarrow (M, T \setminus tid, (tid: p, c_a) :: C, S)
+    (M, T[tid \mapsto (p, c_a)], C, S, K) \rightarrow (M, T \setminus tid, (tid: p, c_a) :: C, S, K)
     }
 
     \inferrule*[left=E-AsyncDone]
@@ -161,7 +162,7 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is
     C = (tid: p, v) :: C' \\ tid \neq \text{main}
     }
     {
-    (M, T, C, S) \rightarrow (M, T[tid \mapsto \text{done}(p, v)], C', S)
+    (M, T, C, S, K) \rightarrow (M, T[tid \mapsto \text{done}(p, v)], C', S, K)
     }
 
     \inferrule*[left=E-Await]
@@ -169,10 +170,103 @@ We represent the machine state as a tuple $\Sigma ::= (M, T, C, S)$ where $M$ is
     T(tid) = \text{done}(p, v) 
     }
     {
-    (M, T, (tid' : p, \text{let } x = \text{await } tid) :: C, S) \rightarrow (M[x \mapsto v], T, (tid' : p, \text{skip}) :: C, S)
+    (M, T, (tid' : p, \text{let } x = \text{await } tid) :: C, S, K) \rightarrow (M[x \mapsto v], T, (tid' : p, \text{skip}) :: C, S, K)
+    }
+
+    \inferrule*[left=E-Call]
+    {
+    M(f) = (c'; ret := e) \\ C' = (tid : p, \text{let }x = []; c) :: C
+    }
+    {
+    (M, T, (tid : p, \text{let } x = f(v, p)) :: C, S, K) \rightarrow (M, T, (tid : p, (c'; ret := e)) :: C', S, K)
+    }
+
+    \inferrule*[left=E-Ret]
+    {
+    M, S \vdash e \rightarrow v \\ C = (tid : p, \text{let }x = []; c) :: C'
+    }
+    {
+    (M, T, (tid : p, ret := e) :: C, S, K) \rightarrow (M[x \mapsto v], T, (tid : p, c) :: C', S, K)
+    }
+
+    \inferrule*[left=E-IfTrue]
+    {
+    M, S \vdash e \rightarrow \text{true} \\ C' = (tid : p, c_1) :: (tid : p, \texttt{endif}) :: C
+    }
+    {
+    (M, T, (tid : p, \text{if }e \text{ then } c_1 \text{ else } c_2) :: C, S, K) \rightarrow (M, T, C', S, K)
+    }
+
+    \inferrule*[left=E-IfFalse]
+    {
+    M, S \vdash e \rightarrow \text{false} \\ C' = (tid : p, c_2) :: (tid : p, \texttt{endif}) :: C
+    }
+    {
+    (M, T, (tid : p, \text{if }e \text{ then } c_1 \text{ else } c_2) :: C, S, K) \rightarrow (M, T, C', S, K)
+    }
+
+    \inferrule*[left=E-EndIf]
+    {  }
+    {
+    (M, T, (tid : p, \texttt{endif}) :: C, S, K) \rightarrow (M, T, (tid : p, \text{skip}) :: C, S, K)
+    }
+
+    \inferrule*[left=E-Assign]
+    {
+    M, S \vdash e \rightarrow v
+    }
+    {
+    (M, T, (tid : p, \text{let } x = e) :: C, S, K) \rightarrow (M[x \mapsto v], T, (tid : p, \text{skip}) :: C, S, K)
+    }
+
+    \inferrule*[left=E-Transition]
+    {
+    S(x) = st'
+    }
+    {
+    (M, T, (tid : p, \text{transition}(x, st)) :: C, S, K) \rightarrow (M, T, (tid : p, \text{skip}) :: C, S[x \mapsto st], K)
+    }
+
+    \inferrule*[left=E-Downgrade]
+    {
+    S(x) = st'
+    }
+    {
+    (M, T, (tid : p, \text{downgrade}(x, st)) :: C, S, K) \rightarrow (M, T, (tid : p, \text{skip}) :: C, S[x \mapsto st], K)
+    }
+
+    \inferrule*[left=E-Clock]
+    {
+    K' = \sai{idk what to put here}
+    }
+    {
+    (M, T, (tid : p, \text{clock}) :: C, S, K) \rightarrow (M, T, (tid : p, \text{skip}) :: C, S, K')
     }
 
 \end{mathpar}
+The semantics for declarations take the following form: $$\begin{aligned}
+    \fbox{$(M, S, d) \rightarrow (M', S')$}
+\end{aligned}$$
+\begin{mathpar}
+
+    \inferrule*[left=E-PeriphDecl]
+    {
+    S' = S[\text{id} \mapsto \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}]
+    }
+    {
+    (M, S, \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}) \rightarrow (M, S')
+    }
+    
+    \inferrule*[left=E-FunDecl]
+    {
+    M' = M[f \mapsto \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}]
+    }
+    {
+    (M, S, \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\}) \rightarrow (M', S)
+    }
+\end{mathpar}
+
+
 Our typing judgment for commands is of the form: 
 $$ \begin{aligned}
     \fbox{$\tctx, \pctx, \Phi, C, f \vdash c \rightarrow \tctx', \pctx', \Phi', C', f'$}
