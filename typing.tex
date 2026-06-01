@@ -128,6 +128,7 @@ We model concurrent execution in a preemptive fashion. Our execution is instead 
 \textit{Frame} & f & \bnfdef & (tid : p, \texttt{endif}) \bnfalt (tid: p, c) \bnfalt (tid : p, []; c) \bnfalt (tid : p, \text{let }x = []; c) \bnfalt \cdot
 \end{array}
 \]
+\todo{write down semantic rules for expressions and match}
 \begin{mathpar}
     \inferrule*[left=E-Seq]
     {
@@ -392,7 +393,7 @@ s \hookrightarrow st \in x(D) \\
 
 \inferrule*[left=T-Match]
 {
-\pctx(p) = \alpha \\ \Vec{s} = \m{solve}(\Phi|_\alpha) \\ \forall i \in 1, \dots, n \ st_i \in \Vec{s} \\ \forall i \in 1, \dots, n, \tctx, \pctx, \Phi, C, f \vdash c_i \rightarrow \tctx_i, \pctx_i, \Phi_i, C_i, f_i \\ f' = \cup^n_{i = 1} f_i \\ C' = \m{max}(C_1, \dots, C_n) + C \\ \tctx' = \cup^n_{i = 1} \tctx_i \\ \pctx' = \cup^n_{i = 1} \pctx_i
+\pctx(p) = \alpha \\ \Vec{s} = \m{solve}(\Phi|_\alpha) \\ \{st_1, \dots, st_n \} \supset \Vec{s} \\ \forall i \in 1, \dots, n, \alpha_i \text{ fresh} \\ \forall i \in 1, \dots, n, \pctx_i'[p] = \alpha_i :: \pctx[p] \\ \forall i \in 1, \dots, n, \tctx, \pctx_i' \Phi \land \alpha_i = st_i, C, f \vdash c_i \rightarrow \tctx_i, \pctx_i, \Phi_i, C_i, f_i \\ f' = \cup^n_{i = 1} f_i \\ C' = \m{max}(C_1, \dots, C_n) + C \\ \tctx' = \cup^n_{i = 1} \tctx_i \\ \pctx', \Phi' = \uplus^n_{i = 1} \pctx_i
 }
 {
 \tctx, \pctx, \Phi, C, f \vdash \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n \rightarrow \tctx', \pctx', \Phi', C', f' 
