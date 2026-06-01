@@ -128,7 +128,39 @@ We model concurrent execution in a preemptive fashion. Our execution is instead 
 \textit{Frame} & f & \bnfdef & (tid : p, \texttt{endif}) \bnfalt (tid: p, c) \bnfalt (tid : p, []; c) \bnfalt (tid : p, \text{let }x = []; c) \bnfalt \cdot
 \end{array}
 \]
-\todo{write down semantic rules for expressions and match}
+\todo{write down semantic rules for match}
+
+\begin{mathpar}
+    \inferrule*[left=E-Var]
+    {
+    M(x) = v
+    }
+    {
+    M, S \vdash x \rightarrow v
+    }
+
+    \inferrule*[left=E-BinopStep]
+    {
+    M, S \vdash e_1 \rightarrow e'_1
+    }
+    {
+    M, S \vdash e_1 \text{ binop } e_2 \rightarrow e'_1 \text{ binop } e_2
+    }
+
+    \inferrule*[left=E-BinopStep2]
+    {
+    M, S \vdash e_2 \rightarrow e'_2
+    }
+    {
+    M, S \vdash e_1 \text{ binop } e_2 \rightarrow v_1 \text{ binop } e'_2
+    }
+
+    \inferrule*[left=E-BinopFin]
+    {  v_1 \text{ binop } v_2 = v  }
+    {
+    M, S \vdash v_1 \text{ binop } v_2 \rightarrow v
+    }
+\end{mathpar}
 \begin{mathpar}
     \inferrule*[left=E-Seq]
     {
