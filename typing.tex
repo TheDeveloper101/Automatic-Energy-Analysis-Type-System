@@ -30,24 +30,24 @@ Our judgments use the following additional constructs.
 \\
 \textit{Downgrade policy} & D & \bnfdef & s' \hookrightarrow s, D \bnfalt \cdot
 \\
-\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow \Vec{s}, \pctx \bnfalt \cdot
+\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow \Vec{s}, \pctx \bnfalt p \rightarrow \m{cap}(\Vec{s}, tid) \bnfalt \cdot
 \end{array}
 \]
 
 A downgrade policy $s' \hookrightarrow s$ means that a peripheral in state $s'$ can transition to state $s$ assuming that $s' > s$. 
 We also assume the existence of the cost functions 
-$\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each peripheral being in the maximum possible state. 
+$\m{cost}(s_{i},s_{j})$ = transition cost between \(s_{i},s_{j}\) when \(s_{i} \leq s_{j}\) or $\m{cost}(s_j, s_i)$ when \(s_j \hookrightarrow s_i\) and $\m{cost}(s_{i})$ = cost of being in state \(s_{i}\). Additionally, we assume $\m{cost}(\pctx)$ which returns the total cost of each non-captured peripheral being in the maximum possible state. 
 We assume that the state lattice must have a unique \(\top\) element that is
 the least upper bound of all the elements. 
 
 \sai{checking resource analysis system starts here}
 The rules for this system assumes we already know the states of the peripherals that are being analyzed - ie no state inference and then deriving a cost.
 
-We define $\m{bg}(\pctx)$ as the sum over all non-transitioning peripherals and their maximum background cost. For a function declaration cost, the cost is written as $q(\pctx)$ which means that the cost depends on the values of some peripheral context $\pctx$ which will be instantiated at the function call site. This ensures that we actually capture the actual peripherals that are active in the background when the function is called rather than just when it is declared. We define $q[\pctx]$ to mean the substitution of $\pctx$ for $\pctx_b$ that $q$ is parameterized over, and then substituting in $\pctx$ for all background cost calculations inside of the function.
+For a function declaration cost, the cost is written as $q(\pctx)$ which means that the cost depends on the values of some peripheral context $\pctx$ which will be instantiated at the function call site. This ensures that we actually capture the actual peripherals that are active in the background when the function is called rather than just when it is declared. We define $q[\pctx]$ to mean the substitution of $\pctx$ for $\pctx_b$ that $q$ is parameterized over, and then substituting in $\pctx$ for all background cost calculations inside of the function. All of the costs are scaled by the current clock frequency $f$. 
 
 Command typing rules are of the form $$
 \begin{aligned}
-    \fbox{$\tctx, \pctx \vdash c: \tau \Rightarrow \tctx', \pctx', q'$}
+    \fbox{$\tctx, \pctx, f \vdash c: \tau \Rightarrow \tctx', \pctx', f', q'$}
 \end{aligned}
 $$
 
@@ -61,7 +61,7 @@ $$
 
 \inferrule*[left=T-Var]
 { \tctx(x) = \tau }
-{ \tctx, \pctx \vdash x : \tau, q }
+{ \tctx, \pctx \vdash x : \tau }
 
 
 \inferrule*[left=T-BinOp]
@@ -71,26 +71,34 @@ $$
 {
 \tctx,\pctx \vdash e_1 \ \text{binop}\ e_2 : \tau, q_1 + q_2
 }
-\end{mathpar}
 
-\begin{mathpar}
 \inferrule*[left=T-Let]
-{ \tctx,\pctx \vdash e : \tau, q_e }
+{ \tctx,\pctx \vdash e : \tau, q_e \\ q = q_e + \m{cost}(\pctx) }
 { 
-\tctx,\pctx, f \vdash \text{let } x = e : \text{unit} \Rightarrow \tctx[x : \tau, q_e] , \pctx, f
+\tctx,\pctx, f \vdash \text{let } x = e : \text{unit} \Rightarrow \tctx[x : \tau] , \pctx, q, f
 }
 
 \inferrule*[left=T-Call]
 {
-\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow^{q_f(\pctx_b)} (\tau_2, \Vec{s_2}) \\ \tctx,\pctx \vdash e : \tau_1, q_e \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq s_1 
+\tctx(f) = (\tau_1, \Vec{s_1}) \rightarrow^{q_f(\cdot)} (\tau_2, \Vec{s_2}), f_f \\ \tctx,\pctx \vdash e : \tau_1, q_e \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'_b = \pctx \setminus p \\ q = q_e + q_f[\pctx'_b]
 }
 {
-\tctx,\pctx, f \vdash \text{let } x = f(e, p) : \text{unit} \Rightarrow \tctx[x : \tau_2], \pctx[p: s_2], q_e + q_f[\pctx], f
+\tctx,\pctx, f \vdash \text{let } x = f(e, p) : \text{unit} \Rightarrow \tctx[x : \tau_2], \pctx[p: s_2], q, f_f
+}
+\end{mathpar}
+
+\begin{mathpar}
+\inferrule*[left=T-Match]
+{
+\pctx(p) = \Vec{s} \\ \{st_1, \dots, st_n\} \supseteq \Vec{s} \\ \forall i \in 1, \dots, n, \tctx, \pctx, p : st_i, f \vdash c_i \rightarrow \tctx_i, \pctx_i, q_i, f_i \\ \tctx' = \cap_{i=1}^n \tctx_i \\ \pctx' = \cup_{i=1}^n \pctx_i \\ f' = \m{max}(f_1, \dots, f_n) \\ q = \m{max}(q_1, \dots, q_n) + \m{cost}(\pctx)
+}
+{
+\tctx, \pctx, f \vdash \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n : \text{unit} \Rightarrow \tctx', \pctx', q, f'
 }
 
 \inferrule*[left=T-Transition]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \leq st \\ q = \max(\m{cost}(s_i, st))
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \text{stable}(st) \\ \forall s_i\in \Vec{s}, s_i \leq st \\ q = \max(\m{cost}(s_i, st))(f) + \m{cost}(\pctx \setminus x)
 }
 { 
 \tctx,\pctx, f \vdash \text{transition}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], q, f
@@ -98,7 +106,7 @@ $$
 
 \inferrule*[left=T-Downgrade]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in p(D) \\ q = \max(\m{cost}(s_i, st))
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in x(D) \\ q = \max(\m{cost}(s_i, st))(f) + \m{cost}(\pctx \setminus x)
 }
 { 
 \tctx,\pctx, f \vdash \text{downgrade}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], q, f
@@ -106,48 +114,48 @@ $$
 
 \inferrule*[left=T-If]
 {
-\tctx,\pctx, f \vdash e : \text{bool} \\ \tctx,\pctx \vdash c_1 : \tau \Rightarrow \tctx_1, \pctx_1, q_1, f_1 \\ \tctx,\pctx, f \vdash c_2 : \tau \Rightarrow \tctx_2, \pctx_2, q_2, f_2 \\ \tctx^* = \tctx_1 \cup \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ q = \max(q_1, q_2) \\ f^* = \max(f_1, f_2)
+\tctx,\pctx \vdash e : \text{bool}, q_e \\ \tctx,\pctx \vdash c_1 : \tau \Rightarrow \tctx_1, \pctx_1, q_1, f_1 \\ \tctx,\pctx, f \vdash c_2 : \tau \Rightarrow \tctx_2, \pctx_2, q_2, f_2 \\ \tctx^* = \tctx_1 \cap \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ q = \max(q_1, q_2) + q_e + \m{cost}(\pctx) \\ f^* = \max(f_1, f_2)
 }
 {
-\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 \Rightarrow \tctx^*, \pctx^*, q, f^*
+\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 : \tau \Rightarrow \tctx^*, \pctx^*, q, f^*
 }
 
 \inferrule*[left=T-Seq]
 {
-\tctx,\pctx, f \vdash c_1 : \tau_1 \Rightarrow \tctx', \pctx', q_1, f' \\ \tctx',\pctx', f_1 \vdash c_2 : \tau_2 \Rightarrow \tctx'', \pctx'', q_2, f''
+\tctx,\pctx, f \vdash c_1 : \tau_1 \Rightarrow \tctx', \pctx', q_1, f' \\ \tctx',\pctx', f' \vdash c_2 : \tau_2 \Rightarrow \tctx'', \pctx'', q_2, f''
 }
 {
-\tctx,\pctx, f \vdash c_1 ; c_2 : \tau_2 \Rightarrow \tctx'', \pctx'', q_1 + q_2 + \m{bg}(\pctx), f''
+\tctx,\pctx, f \vdash c_1 ; c_2 : \tau_2 \Rightarrow \tctx'', \pctx'', q_1 + q_2, f''
 }
 
 \inferrule*[left=T-FunDecl]
 {
-\tctx[x : \tau_1], \pctx[p: \Vec{s_1}] \vdash c: \tau_2 \Rightarrow \tctx', \pctx', q_1(\pctx_b) \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, q_2(\pctx_b) \\ q_f = (q_1 + q_2)(\pctx_b)
+\tctx[x : \tau_1], \pctx[p: \Vec{s_1}], \beta: \text{amb}, f \vdash c: \tau_2 \Rightarrow \tctx', \pctx', f_f, q_1(\cdot) \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, q_2(\cdot) \\ q_f = (q_1 + q_2 + \m{cost}(\cdot))(\cdot)
 }
-{ \tctx,\pctx \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \rightarrow^{q_f} (\tau_2, \Vec{s_2})], \pctx
+{ \tctx,\pctx, f \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \rightarrow^{q_f} (\tau_2, \Vec{s_2}), f_f], \pctx
 }
 
 \inferrule*[left=T-AsyncFun]
 {
-\pctx(p) = \Vec{s} \\ \forall st \in \Vec{s}, \text{unstable}(st) \\ \tctx, p: \Vec{s}, f \vdash c \rightarrow \tctx', p : \Vec{s'}, q_a \\ \forall st \in \Vec{s'}, \text{stable}(st) \\ \pctx' = \pctx \setminus p 
+\pctx(p) = \Vec{s_i} \\ \forall st \in \Vec{s_i}, \text{unstable}(st) \\ \tctx, p: \Vec{s_i}, f \vdash c \rightarrow \tctx', p : \Vec{s_o}, q_a, f_a \\ \forall st \in \Vec{s_o}, \text{stable}(st) \\ \pctx'(p) = \m{cap}(\Vec{s_i}, tid)\\ q_s = \m{cost}(\text{async spawn}) + \m{cost}(\pctx \setminus p) \\ tid \text{ fresh}
 }
 {
- \tctx, \pctx, f \vdash \text{let } tid = \text{async}(p)\ \{c\} \rightarrow \tctx[tid : (p, q_a, f_a)], \pctx', q_s, f
+ \tctx, \pctx, f \vdash \text{let } tid = \text{async}(p)\ \{c\} : \text{unit} \Rightarrow \tctx[tid : (p: \Vec{s_o}, q_a, f_a)], \pctx', q_s, f
 }
 
 
 % the way the timeout cost accounting works is that either the await finishes executing in which case we incur the cost of the await, or the timeout triggers and the fallback code executes in which case the cost is the cost of any peripherals active in the background during the timeout and then the cost of the fallback code
 \inferrule*[left=T-Await-Timeout]
 {
-\tctx(tid) = (p, q_a, f_a) \\ \tctx, \pctx, f \vdash c_{fb} \rightarrow \tctx_{fb}, \pctx_{fb}, f_{fb} \\ \pctx_{fb}(p) = \Vec{s_{fb}} \\ \forall s \in \Vec{s_{fb}}, s = \text{stable}(s) \\ q_t = \text{timeout} * \m{bg}(\pctx) \\ q = \max(q_a, q_{fb} + q_t) \\ \pctx'' = \pctx \cup \pctx_{fb} \cup p : [\Vec{s'}]
+\tctx(tid) = (p: \Vec{s_o}, q_a, f_a) \\ \tctx, \pctx, p: \Vec{s_i}, f \vdash c_{fb} \rightarrow \tctx_{fb}, \pctx_{fb}, f_{fb}, q_{fb} \\ \pctx_{fb}(p) = \Vec{s_{fb}} \\ \pctx(p) = \m{cap}(\Vec{s_i}, tid') \\ tid' = tid \\ \forall s \in \Vec{s_{fb}}, \text{stable}(s) \\ q_t = n * (\m{cost}(\pctx \setminus p) + C_{\text{unstable}}(p : \Vec{s_i})) \\ q = \max(q_a, q_{fb} + q_t) \\ \pctx'' = \pctx \cup \pctx_{fb} \cup p : \Vec{s_o} \\ \tctx' = (\tctx \cup \tctx_{fb}) \setminus tid \\ n > 0
 }
 {
-\tctx, \pctx, f \vdash \text{await } tid \text{ timeout} \ \{c_\text{fb}\} \rightarrow \tctx, \pctx'', q, \max(f, f_a, f_\text{fb})
+\tctx, \pctx, f \vdash \text{await } tid \text{ timeout[n]} \ \{c_\text{fb}\} \rightarrow \tctx', \pctx'', q, \max(f, f_a, f_\text{fb})
 }
 
-\inferrule*[left=T-Transition-Transient]
+\inferrule*[left=T-Transition-Unstable]
 {
-\tctx, \pctx \vdash x : \rho \\ st = \text{transient}(st) \\ \pctx(x) = \Vec{s} \\ \forall st' \in \Vec{s}, st' \leq st \\ \Vec{st^+} = st \cup \text{HWReach}(st) \\ \pctx'[x] = \Vec{st^+} \\ q = \max(\m{cost}(st', st^+))
+\tctx, \pctx \vdash x : \rho \\ \text{unstable}(st) \\ \pctx(x) = \Vec{s} \\ \forall st' \in \Vec{s}, st' \leq st \\ \Vec{st^+} = st \cup \text{HWReach}(st) \\ \pctx'[x] = \Vec{st^+} \\ q = \max(\m{cost}(st', st^+)) + \m{cost}(\pctx \setminus x)
 }
 {
 \tctx, \pctx, f \vdash \text{transition}(x, st) \rightarrow \tctx, \pctx', q, f
@@ -155,7 +163,7 @@ $$
 
 \inferrule*[left=T-Clock]
 {
-f' \in \mathcal{Q^+} \\ q = q_c % cost of changing clock speed
+f' \in \mathcal{Q^+} \\ q = \m{cost}(f, f') + \m{cost}(\pctx) % cost of changing clock speed
 }
 {
 \tctx, \pctx, f \vdash \text{clock } f' \rightarrow \tctx, \pctx, q, f'
@@ -164,18 +172,18 @@ f' \in \mathcal{Q^+} \\ q = q_c % cost of changing clock speed
  
 \sai{new AARA system starts here}
 
-We want to parameterize the costs by two things: first, costs are "parametric" in the peripheral state. We mean that rather than tracking the peripheral typestate concretely, we update the peripheral context to be $\pctx ::= p : [\alpha], \pctx \mid \cdot$. When analyzing the cost of a function, we keep the costs generic in terms of the state, but when we have a function call, then we use the state inference rules to infer the concrete state of the peripheral, and output a concrete cost for the function based on the inferred state.
+We want to parameterize the costs by two things: first, costs are "parametric" in the peripheral state. We mean that rather than tracking the peripheral typestate concretely, we update the peripheral context to be $\pctx ::= p : [\alpha], \pctx \mid p : \m{cap}([\alpha], tid) \mid \cdot$. When analyzing the cost of a function, we keep the costs generic in terms of the state, but when we have a function call, then we use the state inference rules to infer the concrete state of the peripheral, and output a concrete cost for the function based on the inferred state. 
 
-To perform the actual cost analysis, we return the cost in terms of ticks - a symbolic resource that can represent either energy or time which are the two primary costs associated with an embedded system. In order to support both possible forms of resources, we require that during a peripheral declaration, each state is annotated with a symbolic cost $c_i$ and background cost $bc_i$. In order to integrate clock speed into our analysis, we define the construct \texttt{clock }$f$ where $f$ is any positive rational number. With regards to the cost analysis, this has the affect of scaling all cost expressions by a factor of $f$. When there are multiple possible clock speeds, the one that maximizes the cost will be chosen.
+To perform the actual cost analysis, we return the cost in terms of ticks - a symbolic resource that can represent either energy or time which are the two primary costs associated with an embedded system. In order to support both possible forms of resources, we require that during a peripheral declaration, each state is annotated with a symbolic cost $c_i$ and background cost $bc_i$. In order to integrate clock speed into our analysis, we define the construct \texttt{clock }$f$ where $f$ is any positive rational number. With regards to the cost analysis, this has the affect of scaling all cost expressions by a factor of $f$. When there are multiple possible clock speeds, the one that maximizes the cost will be chosen. For functions, we define $\beta: \text{amb} $ to represent unknown peripherals that will also be active when the function is called, but are not known at declaration time.
 
 We have the following grammar for defining cost expressions:
 \[
 \begin{array}{lcll}
-     \text{Cost expression} & C  \bnfdef & C(f) & \text{(command cost)} \\ & \bnfalt & C(p : st, f) & \text{(state cost)} \\ & \bnfalt & C(p : (st, st'), f) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st), f) & \text{(non-concrete transition cost)} \\
-     & \bnfalt & C(p : \alpha, f) & \text{(non-concrete cost)} \\ & \bnfalt & C_1 + C_2 & \text{(plus)} \\ & \bnfalt & \m{max}(C_1, C_2) & \text{(max)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)}
+     \text{Cost expression} & \epsilon  \bnfdef & C(f) & \text{(command cost)} \\ & \bnfalt & C(p : st, f) & \text{(state cost)} \\ & \bnfalt & C(p : (st, st'), f) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st), f) & \text{(non-concrete transition cost)} \\
+     & \bnfalt & C(p : \alpha, f) & \text{(non-concrete cost)} \\ & \bnfalt & \epsilon_1 + \epsilon_2 & \text{(plus)} \\ & \bnfalt & \m{max}(\epsilon_1, \epsilon_2) & \text{(max)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)} \\ & \bnfalt & C(\beta) & \text{(ambient)}
 \end{array}
 \]
-We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx) := \sum_{p \in \pctx} C(p : \alpha)$ aka the sum of all of the peripherals in their current state variables. We have the following rule for joining peripheral contexts:
+We treat cost expressions as symbolic undetermined expressions. We have the following rule for joining peripheral contexts for peripherals that are not captured:
 
 \begin{mathpar}
 \inferrule*[left=Top Level Join]
@@ -205,9 +213,13 @@ We treat cost expressions as symbolic undetermined expressions. $\m{cost}(\pctx)
 \inferrule*[left=Symmetry]
 { }
 {\pctx_1 \uplus \pctx_2 = \pctx_2 \uplus \pctx_1}
+
+\inferrule*[left=Captured]
+{\pctx_1[p] = \m{cap}(\sigma, tid) \\ \pctx_2[p] = \m{cap}(\sigma, tid)}
+{\Phi_1, \Phi_2 \vdash \pctx_1[p] \uplus \pctx_2[p] = \m{cap}(\sigma, tid), \cdot}
 \end{mathpar}
 
-We want to model hardware-software concurrency as well. Following the lead of Abacus, we define transient states, which are states that represent when our peripheral is performing actions via hardware-initiated behavior (like interrupts). We update our language constructs in the following ways. First, we define the predicates transient($st$) and stable($st$) to specify when a state is either transient or stable. In more concrete terms, a state is transient if there is at least one \textbf{outgoing} transition that is hardware-initiated. To represent the concurrent behavior, we use an async/await syntax. We use capturing semantics to represent the idea that the peripheral is now executing concurrently and is not accessible to software. When we initiate an async call, the peripheral must be in a transient state, which is only possible from a software initiated transition. In order to model that transition into a transient state, we update the state inference constraint such that the new state must be a subset of $\{st\} \cup \text{HWReach}(st)$. What this means is that it must be a subset of the set of all reachable transient states from the state that is transitioned to. HWReach($st$) for a stable state $st$ is the empty set. When we typecheck an async command, we first solve for the input states and make sure the peripheral is in a transient state, then we typecheck the body of the asynchronous function - which represents the commands that are executed while in the transient state. Finally, we enforce that once the function is finished, the peripheral must transition back to a stable state. We then use the await construct to block execution until the thread has completed. However, blocking indefinitely would prevent us from being able to assign cost bounds to programs, as they can take abritrarily long periods of time. To get around this, we require that an await statement also includes a timeout and a fallback codeblock that executes once the timeout triggers. We then take the max cost of either triggering the timeout or completing execution. Finally, because a peripheral can now be in either a set of transient states, or a set of stable states, we require that a peripheral cannot be in a set of mixed states, i.e. both transient and stable. This means that anytime we check the state of a peripheral, it must either be all transient or all stable. Finally, we introduce $C_\text{transient}(p : \alpha)$ as a new cost, which represents $\m{max}_{s \in \text{HWReach(}st\text{)}}(C(p : s))$ where $st$ = $\m{solve}(\alpha)$. We extend our language's commands to include the following:
+We want to model hardware-software concurrency as well. Following the lead of Abacus, we define transient states, which are states that represent when our peripheral is performing actions via hardware-initiated behavior (like interrupts). We update our language constructs in the following ways. First, we define the predicates unstable($st$) and stable($st$) to specify when a state is either transient or stable. In more concrete terms, a state is transient if there is at least one \textbf{outgoing} transition that is hardware-initiated. To represent the concurrent behavior, we use an async/await syntax. We use capturing semantics to represent the idea that the peripheral is now executing concurrently and is not accessible to software. When we initiate an async call, the peripheral must be in a transient state, which is only possible from a software initiated transition. In order to model that transition into a transient state, we update the state inference constraint such that the new state must be a subset of $\{st\} \cup \text{HWReach}(st)$. What this means is that it must be a subset of the set of all reachable transient states from the state that is transitioned to. HWReach($st$) for a stable state $st$ is the empty set. When we typecheck an async command, we first solve for the input states and make sure the peripheral is in a transient state, then we typecheck the body of the asynchronous function - which represents the commands that are executed while in the transient state. Finally, we enforce that once the function is finished, the peripheral must transition back to a stable state. We then use the await construct to block execution until the thread has completed. However, blocking indefinitely would prevent us from being able to assign cost bounds to programs, as they can take abritrarily long periods of time. To get around this, we require that an await statement also includes a timeout and a fallback codeblock that executes once the timeout triggers. We then take the max cost of either triggering the timeout or completing execution. Finally, because a peripheral can now be in either a set of transient states, or a set of stable states, we require that a peripheral cannot be in a set of mixed states, i.e. both transient and stable. This means that anytime we check the state of a peripheral, it must either be all transient or all stable. Finally, we introduce $C_\text{unstable}(p : \alpha)$ as a new cost, which represents $\m{max}_{s \in st \cup \text{HWReach(}st\text{)}}(C(p : s))$ where $st$ = $\m{solve}(\alpha)$. We extend our language's commands to include the following:
 \[
 \begin{array}{lcll}
 \text{Commands: }c & \bnfdef & \dots \\ 
@@ -217,81 +229,31 @@ We want to model hardware-software concurrency as well. Following the lead of Ab
 
 \begin{mathpar}
     \inferrule*[left=T-AsyncFun]
-    { \pctx(p) = \alpha_i \\ \Vec{s_i} = \text{solve}(\Phi|_{\alpha_i}) \\ \forall st \in \vec{s_i}, \text{transient}(st) \\ \tctx, p : [\alpha_i], \Phi|_p, \cdot, f \vdash c \rightarrow \tctx_a, p : [\alpha_o], C_a, f_a \\ \vec{s_o} = \text{solve}(\Phi_a|_{\alpha_o}) \\ \forall st \in \vec{s_o},\ \text{stable}(st) \\ \pctx' = \pctx \setminus \pctx|_p \\ \Phi' = \Phi \setminus \Phi|_p \\ C' =  C_\text{async spawn}
+    { \pctx(p) = \alpha_i \\ \Vec{s_i} = \text{solve}(\Phi|_{\alpha_i}) \\ \forall st \in \vec{s_i}, \text{unstable}(st) \\ \tctx, p : [\alpha_i], \Phi|_p, f \vdash c \rightarrow \tctx_a, p : [\alpha_o], \Phi_a, C_a, f_a \\ \vec{s_o} = \text{solve}(\Phi_a|_{\alpha_o}) \\ \forall st \in \vec{s_o},\ \text{stable}(st) \\ \pctx'(p) = \m{cap}([\alpha_i], tid) \\ \Phi' = \Phi \setminus \Phi|_p \\ C' =  C_\text{async spawn} + \m{cost}(\pctx \setminus p) \\ tid \text{ fresh}
     }
-    { \tctx, \pctx, \Phi, f \vdash \text{let } tid = \text{async}(p)\ \{c\} \rightarrow \tctx[tid : (p, \Phi_a, C_a, f_a)], \pctx', \Phi', C', f
+    { \tctx, \pctx, \Phi, f \vdash \text{let } tid = \text{async}(p)\ \{c\} \rightarrow \tctx[tid : (p : [\alpha_o], \Phi|_p, \Phi_a, C_a, f_a)], \pctx', \Phi', C', f
     }
     
     \inferrule*[left=T-Await-Timeout]
-    {\tctx(tid) = (p, \Phi_a, C_a, f_a) \\ p \notin \pctx \\  \tctx, \pctx, \Phi, C, f \vdash c_\text{fb} \rightarrow \tctx_\text{fb}, \pctx_\text{fb}, \Phi_\text{fb}, C_\text{fb}, f_\text{fb} \\ \Vec{s_\text{fb}} = \text{solve}(\Phi_\text{fb}|_p) \\ \forall st \in \vec{s_\text{fb}}, \text{stable}(st) \\ C_\text{timeout} = \text{timeout * } C_\text{transient}(p : \alpha_i) \\ C_\text{await timeout} = C_\text{timeout}(f_\text{fb}) + C_\text{fb}(f_\text{fb}) \\ C' = \max(C_a(f_a), C_\text{await timeout}) \\ \pctx_r = \pctx \cup p : [\alpha_o] \\ \pctx'', \Phi'' = \pctx_r \uplus \pctx_\text{fb}
+    {\tctx(tid) = (p :[\alpha_o], \Phi|_p, \Phi_a, C_a, f_a) \\ \pctx(p) = \m{cap}([\alpha_i], tid') \\ tid' = tid \\ \tctx, \pctx, p : [\alpha_i], \Phi \land \Phi|_p, f \vdash c_\text{fb} \rightarrow \tctx_\text{fb}, \pctx_\text{fb}, \Phi_\text{fb}, C_\text{fb}, f_\text{fb} \\ \Vec{s_\text{fb}} = \text{solve}(\Phi_\text{fb}|_p) \\ \forall st \in \vec{s_\text{fb}}, \text{stable}(st) \\ C_\text{timeout} = n *  (C_\text{unstable}(p : \alpha_i) + \m{cost}(\pctx \setminus p)) \\ C_\text{await timeout} = C_\text{timeout}(f) + C_\text{fb}(f_\text{fb}) \\ C' = \max(C_a(f_a), C_\text{await timeout}) \\ \pctx_r = \pctx \cup p : [\alpha_o] \\ \pctx'', \Phi'' = \pctx_r \uplus \pctx_\text{fb} \\ \tctx' = (\tctx \cup \tctx_{fb}) \setminus tid \\ n > 0
     }
-    { \tctx, \pctx, \Phi, f \vdash \text{await } tid \text{ timeout} \ \{c_\text{fb}\} \rightarrow \tctx, \pctx'', \Phi'', C', \max(f, f_a, f_\text{fb})
+    { \tctx, \pctx, \Phi, f \vdash \text{await } tid \text{ timeout[n]} \ \{c_\text{fb}\} \rightarrow \tctx', \pctx'', \Phi'', C', \max(f, f_a, f_\text{fb})
     }
 
-    \inferrule*[left=T-Transition-Transient]
-    { \tctx, \pctx, \Phi \vdash x : \rho \\ st = \text{transient}(st) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Vec{st}^+ = st \cup \text{HWReach}(st) \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 \subseteq \Vec{st}^+ \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st), f)
+    \inferrule*[left=T-Transition-Unstable]
+    { \tctx, \pctx, \Phi \vdash x : \rho \\ \text{unstable}(st) \\ \pctx(x) = \alpha_0 \\ \alpha_1 \text{ fresh} \\ \Vec{st}^+ = st \cup \text{HWReach}(st) \\ \Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 \subseteq \Vec{st}^+ \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st), f) + \m{cost}(\pctx \setminus p)
     }
     { \tctx, \pctx, \Phi, f \vdash \text{transition}(x, st) \rightarrow \tctx, \pctx', \Phi', C', f
     }
 \end{mathpar}
 
+For asynchronous commands, once we perform the typechecking, we notably store the $tid$ of the concurrent thread along with the peripheral's state variable stack both before and after the function has typechecked. This is specifically for typechecking the await command, where where the state stack prior to the asynchronous function is used to typecheck the fallback command. The stack obtained after typechecking the fallback command is then merged with the stack obtained from executing the asynchronous function. 
+
+
 We represent the machine state as a tuple $\Sigma ::= (M, P, C, S, K, T)$ where $M$ is the memory mapping variables to values, $T$ is the thread pool to spawn new threads, $C$ is the stack of frames executing, $S$ is the map of peripherals to their state, $K$ is the current system clock, and $T$ is the current time spent executing the program. $P$ maps handles to a tuple $(p, c)$ which is the peripheral $p$ and the commands being executed. The clock acts as a modifier to the amount of time that passes when a command is executed. The operational semantic rules for commands take the following form: \fbox{$\Sigma \rightarrow \Sigma'$}
 
 We model concurrent execution in a preemptive fashion. Our execution is instead a stack of frames, which each represent either a computation or a hole waiting for another thread to finish. We can spawn threads using $\m{async}$ which enter the thread pool, and the scheduler can non-deterministically choose a thread from the pool to be pushed onto the execution stack. We always execute commands from the top of the execution stack. We assume that async peripheral operations are \textit{capturing} - meaning that the peripheral is no longer available to the main program until the thread ends. We can use this to model hardware concurrency and transient states, since while the peripheral is captured, it performs it's own operations that the main thread is oblivious to.
 
-\[
-\begin{array}{llcl}
-\textit{Memory} & M & \bnfdef & x \mapsto v, M \bnfalt f \mapsto \{c; ret := e\}, M \bnfalt \cdot
-\\ 
-\textit{Thread Pool} & P & \bnfdef & tid \mapsto (p, c), T \bnfalt \cdot 
-\\
-\textit{Peripheral Map} & S & \bnfdef & p \mapsto s, P \bnfalt \cdot
-\\
-\textit{Execution Context} & C & \bnfdef &  f, C \bnfalt \cdot
-\\
-\textit{Frame} & f & \bnfdef & (tid : p, \text{endif}) \bnfalt (tid: p, c) \bnfalt (tid : p, []; c) \bnfalt (tid : p, \text{let }x = []; c) \bnfalt \\ \text{await } tid \text{ timeout}[n] \bnfalt \cdot
-\\
-\textit{Time} & T & \bnfdef & n \in \mathcal{N^+}
-\end{array}
-\]
-
-
-\begin{mathpar}
-    \inferrule*[left=E-Var]
-    {
-    M(x) = v
-    }
-    {
-    M, S \vdash x \rightarrow v
-    }
-
-    \inferrule*[left=E-BinopStep]
-    {
-    M, S \vdash e_1 \rightarrow e'_1
-    }
-    {
-    M, S \vdash e_1 \text{ binop } e_2 \rightarrow e'_1 \text{ binop } e_2
-    }
-
-    \inferrule*[left=E-BinopStep2]
-    {
-    M, S \vdash e_2 \rightarrow e'_2
-    }
-    {
-    M, S \vdash e_1 \text{ binop } e_2 \rightarrow v_1 \text{ binop } e'_2
-    }
-
-    \inferrule*[left=E-BinopFin]
-    {  v_1 \text{ binop } v_2 = v  }
-    {
-    M, S \vdash v_1 \text{ binop } v_2 \rightarrow v
-    }
-\end{mathpar}
-
-% ==========================================================
-% Machine state
-% ==========================================================
-% Sigma ::= (M, P, C, S, K, T)
 
 \[
 \begin{array}{llcl}
@@ -329,10 +291,7 @@ We model concurrent execution in a preemptive fashion. Our execution is instead 
 \inferrule*[left=E-BinopFin]
 { v_1 \text{ binop } v_2 = v }
 { M, S \vdash v_1 \text{ binop } v_2 \rightarrow v }
-\end{mathpar}
 
-
-\begin{mathpar}
 \inferrule*[left=E-Seq]
 {
 c_1 \rightsquigarrow_q c'_1
@@ -382,7 +341,10 @@ c_1 \rightsquigarrow_q c'_1
 {
 (M,P,(tid:p, \text{let } x = e)::C, S,K) \rightsquigarrow_q (M[x\mapsto v],P,(tid:p,\text{skip})::C, S,K)
 }
+\end{mathpar}
 
+
+\begin{mathpar}
 \inferrule*[left=E-Transition]
 { S(x) = st' \\ q = \m{cost}(st',st) }
 {
@@ -396,13 +358,13 @@ c_1 \rightsquigarrow_q c'_1
 }
 
 \inferrule*[left=E-Clock]
-{ K' = f \\ q = C_\text{clock}(K,K') }
+{ K' = f \\ q = \m{cost}_\text{clock}(K,K') }
 {
 (M,P,(tid:p,\text{clock } f)::C, S,K) \rightsquigarrow_q (M,P,(tid:p,\text{skip})::C, S,K')
 }
 
 \inferrule*[left=E-Match-i]
-{ M(p) = st_i \\ q = 0 }
+{ S(p) = st_i \\ q = 0 }
 {
 (M,P,(tid:p,\text{match }p\text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n)::C, S,K) \rightsquigarrow_q (M,P,(tid:p,c_i)::C, S,K)
 }
@@ -432,19 +394,17 @@ c_1 \rightsquigarrow_q c'_1
 }
 
 \inferrule*[left=E-Await-Timeout]
-{ P(tid) = (p,c_a) \\ q = 0 }
+{ P(tid) = (p,c_a) \\ q = 0 \\ n \leq 0}
 {
-(M,P,(tid':p,\text{await } tid\ \text{timeout}[0]\{c_\text{fb}\})::C, S,K) \rightsquigarrow_q (M,P\setminus tid,(tid':p,c_\text{fb})::C, S,K)
+(M,P,(tid':p,\text{await } tid\ \text{timeout}[n]\{c_\text{fb}\})::C, S,K) \rightsquigarrow_q (M,P\setminus tid,(tid':p,c_\text{fb})::C, S,K)
 }
 
 \inferrule*[left=E-HWStep]
 { P(tid) = (p,\_) \\ st' \in \m{HWReach}(S(p)) \\ q = \m{cost}(S(p),st') }
 {
-(M,P,C, S,K) \rightsquigarrow_q (M,P,C', S[p\mapsto st'],K)
+(M,P,C, S,K) \rightsquigarrow_q (M,P,C, S[p\mapsto st'],K)
 }
-\end{mathpar}
 
-\begin{mathpar}
 \inferrule*[left=E-Step]
 {
 (M,P,C,S,K) \rightsquigarrow_q (M',P',C',S',K') \\
@@ -455,7 +415,7 @@ C'' = \m{drain}_{tid,K}(C')
 (M,P,C,S,K,T) \rightarrow (M',P',C'',S',K',T + K)
 }
 \end{mathpar}
-
+We have two helper functions: $\m{drain}$ and $\m{active}$. $\m{drain}$ walks the stack of execution contexts and decrements timers for all active threads by $K$. $\m{active}$ returns the $tid$ of the active thread that stepped. Each step is one timestep, but this is scaled by the clock speed, so we decrement by $K$. 
 The semantics for declarations take the following form: $$\begin{aligned}
     \fbox{$(M, S, d) \rightarrow (M', S')$}
 \end{aligned}$$
@@ -463,15 +423,15 @@ The semantics for declarations take the following form: $$\begin{aligned}
 
     \inferrule*[left=E-PeriphDecl]
     {
-    S' = S[\text{id} \mapsto \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}]
+    S' = S[\text{id} \mapsto \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, s_{curr}, <, D \}]
     }
     {
-    (M, S, \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}) \rightarrow (M, S')
+    (M, S, \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, s_{curr}, <, D \}) \rightarrow (M, S')
     }
     
     \inferrule*[left=E-FunDecl]
     {
-    M' = M[f \mapsto \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, D \}]
+    M' = M[f \mapsto \{c; ret := e\}]
     }
     {
     (M, S, \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\}) \rightarrow (M', S)
@@ -508,10 +468,10 @@ $$ \begin{aligned}
     \inferrule*[left=T-Seq]
 {
 \tctx,\pctx,\Phi,f \vdash c_1 \rightarrow \tctx',\pctx',\Phi', C', f' \\
-\tctx',\pctx',\Phi', f' \vdash c_2 \rightarrow \tctx'',\pctx'',\Phi'', C'', f''  \\ C_2 = C' + C'' + \m{cost}(\pctx)(f)
+\tctx',\pctx',\Phi', f' \vdash c_2 \rightarrow \tctx'',\pctx'',\Phi'', C'', f''  \\ C_2 = C' + C''
 }
 {
-\tctx,\pctx,\Phi,f,C \vdash c_1\,;\,c_2 \rightarrow \tctx'',\pctx'',\Phi'', C_2, f''
+\tctx,\pctx,\Phi,f \vdash c_1\,;\,c_2 \rightarrow \tctx'',\pctx'',\Phi'', C_2, f''
 }
 \end{mathpar}
 
@@ -522,8 +482,8 @@ $$ \begin{aligned}
 \tctx,\pctx,f \vdash e : \text{bool}, C_e(f) \\
 \tctx,\pctx,\Phi, f \vdash c_1 \rightarrow \tctx_1,\pctx_1,\Phi_1, C_1, f_1 \\
 \tctx,\pctx,\Phi, f \vdash c_2 \rightarrow \tctx_2, \pctx_2, \Phi_2, C_2, f_2 \\
-\tctx^* = \tctx_1 \cup \tctx_2 \\
-\pctx^*, \Phi^* = \pctx_1 \uplus \pctx_2 \\ C^* = \m{max}(C_1(f_1), C_2(f_2)) + C_e \\ f^* = \max(f_1, f_2)
+\tctx^* = \tctx_1 \cap \tctx_2 \\
+\pctx^*, \Phi^* = \pctx_1 \uplus \pctx_2 \\ C^* = \m{max}(C_1(f_1), C_2(f_2)) + C_e + \m{cost}(\pctx) \\ f^* = \max(f_1, f_2)
 }
 {
 \tctx,\pctx,\Phi, f \vdash
@@ -535,7 +495,7 @@ $$ \begin{aligned}
 \inferrule*[left=T-Clock]
 { f \in \mathcal{Q}^+}
 {
-\tctx,\pctx,\Phi, f' \vdash \text{clock } f \rightarrow \tctx,\pctx,\Phi, C_{\m{clock}}(f), f
+\tctx,\pctx,\Phi, f' \vdash \text{clock } f \rightarrow \tctx,\pctx,\Phi, C_{\m{clock}}(f) + \m{cost}(\pctx), f
 }
 
 \inferrule*[left=T-Transition]
@@ -543,8 +503,7 @@ $$ \begin{aligned}
 \tctx, \pctx, \Phi \vdash x : \rho \\
 \pctx(x) = \alpha_0 \\ 
 \alpha_1 \text{ fresh} \\
-\Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\
-\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st), f)
+\Phi' = \Phi \land \alpha_0 \leq st \land \alpha_1 = st \\ \pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(x : (\alpha_0, st), f) + \m{cost}(\pctx \setminus x) \\ \text{stable}(st)
 }
 {
 \tctx,\pctx,\Phi, f \vdash \text{transition}(x, st) \rightarrow \tctx,\pctx',\Phi', C', f
@@ -557,7 +516,7 @@ s \hookrightarrow st \in x(D) \\
 \pctx(x) = \alpha_0 \\ 
 \alpha_1 \text{ fresh} \\
 \Phi' = \Phi \land \alpha_0 = s \land \alpha_1 = st \\
-\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(p : (\alpha_0, st),\, f)
+\pctx'[x] = \alpha_1 :: \pctx[x] \\ C' = C(x : (\alpha_0, st), f) + \m{cost}(\pctx \setminus x) \\ \text{stable}(st)
 }
 {
 \tctx, \pctx, \Phi, f \vdash \text{downgrade}(x, st) \rightarrow \tctx, \pctx', \Phi', C', f
@@ -566,28 +525,26 @@ s \hookrightarrow st \in x(D) \\
 \inferrule*[left=T-FunDecl]
 {
 \alpha_i \text{ fresh} \\
-\pctx = p : [\alpha_i] \\
-\tctx, x : \tau_1, \pctx, \cdot, f \vdash c \rightarrow \pctx_f,\Phi_f, C, f_f \\
+\pctx = p : [\alpha_i], \beta : \text{amb} \\
+\tctx, x : \tau_1, \pctx, \cdot, f \vdash c \rightarrow \tctx_f, \pctx_f,\Phi_f, C, f_f \\
 \pctx_f(p) = \alpha_o \\
-\vec{s_1} = \m{solve}(\Phi_f|_{\alpha_i}) \\ \forall s \in \vec{s_1}, \text{stable}(s) \lor \forall s \in \vec{s_1}, \text{transient}(s) \\ 
+\vec{s_1} = \m{solve}(\Phi_f|_{\alpha_i}) \\ \forall s \in \vec{s_1}, \text{stable}(s) \lor \forall s \in \vec{s_1}, \text{unstable}(s) \\ 
 \vec{s_2} = \m{solve}(\Phi_f|_{\alpha_o}) \\ \forall s \in \vec{s_2}, \text{stable}(s) \\
-\tau_f = \tau_1 \rightarrow \tau_2 \\ \tctx, \pctx, f_f \vdash e: \tau_2, C_r(f_f) \\ C_f = C + C_r(f_f)
+ \tctx_f, \pctx_f, f_f \vdash e: \tau_2, C_r(f_f) \\ \tau_f = \tau_1 \rightarrow \tau_2 \\ C_f = C + C_r(f_f) \\ \tctx'' = \tctx[f \mapsto (\tau_f, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f_f)]
 }
 {
-\tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f_f
+\tctx \vdash \text{fn } f(x, p) \ \{c; ret := e\} : \tau_f, \tctx''
 }
 
 \inferrule*[left=T-Call]
 {
 \tctx(f) = \tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f' \\
-\alpha = \pctx(p) \\
-\vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha}) \\  
-  (\Vec{s} \subseteq \Vec{s_1} \text{ if } \forall st \in \Vec{s}, \text{ stable}(st)) \lor
-  (\Vec{s} \cap \Vec{s_1} \neq \emptyset \text{ if }\forall st \in \Vec{s}, \text{ transient}(st)) \\ 
+\alpha = \pctx(p) \\ 
+\vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha} \land (\alpha_i = \alpha)) \\ \Vec{s} \subseteq \Vec{s_1} \\ 
 \tctx,\pctx, f \vdash e : \tau_1, C_a(f) \\
 \alpha' \text{ fresh} \\
 \pctx'[p] = \alpha' :: \pctx[p] \\
-\Phi' = \Phi \land \alpha \subseteq \vec{s_1} \land \alpha' \subseteq \vec{s_2} \\ C' = C_a(f) + C_f[\Vec{s}]
+\Phi' = \Phi \land \alpha \subseteq \vec{s_1} \land \alpha' \subseteq \vec{s_2} \\ C' = C_a(f) + C_f[\Vec{s}][\beta \mapsto \pctx \setminus p]
 }
 {
 \tctx,\pctx,\Phi, f \vdash \text{let } x = f(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
@@ -595,7 +552,7 @@ s \hookrightarrow st \in x(D) \\
 
 \inferrule*[left=T-Let]
 {
-\tctx, \pctx \vdash e : \tau, C_v \\ C' = C_v
+\tctx, \pctx \vdash e : \tau, C_v \\ C' = C_v + \m{cost}(\pctx)
 }
 {
 \tctx, \pctx, \Phi, f \vdash \text{let } x = e \rightarrow \tctx[x : \tau], \pctx, \Phi, C', f
@@ -603,7 +560,7 @@ s \hookrightarrow st \in x(D) \\
 
 \inferrule*[left=T-Match]
 {
-\pctx(p) = \alpha \\ \Vec{s} = \m{solve}(\Phi|_\alpha) \\ \{st_1, \dots, st_n \} \supset \Vec{s} \\ \forall i \in 1, \dots, n, \alpha_i \text{ fresh} \\ \forall i \in 1, \dots, n, \pctx_i'[p] = \alpha_i :: \pctx[p] \\ \forall i \in 1, \dots, n, \tctx, \pctx_i', \Phi \land \alpha_i = st_i, f \vdash c_i \rightarrow \tctx_i, \pctx_i, \Phi_i, C_i, f_i \\ f' = \cup^n_{i = 1} f_i \\ C' = \m{max}(C_1, \dots, C_n) \\ \tctx' = \cup^n_{i = 1} \tctx_i \\ \pctx', \Phi' = \uplus^n_{i = 1} \pctx_i
+\pctx(p) = \alpha \\ \Vec{s} = \m{solve}(\Phi|_\alpha) \\ \{st_1, \dots, st_n \} \supseteq \Vec{s} \\ \forall i \in 1, \dots, n, \alpha_i \text{ fresh} \\ \forall i \in 1, \dots, n, \pctx_i'[p] = \alpha_i :: \pctx[p] \\ \forall i \in 1, \dots, n, \tctx, \pctx_i', \Phi \land \alpha_i = st_i, f \vdash c_i \rightarrow \tctx_i, \pctx_i, \Phi_i, C_i, f_i \\ f' = \cup^n_{i = 1} f_i \\ C' = \m{max}(C_1, \dots, C_n) + \m{cost}(\pctx) \\ \tctx' = \cap^n_{i = 1} \tctx_i \\ \pctx', \Phi' = \uplus^n_{i = 1} \pctx_i
 }
 {
 \tctx, \pctx, \Phi, f \vdash \text{match }p \text{ with } st_1 \rightarrow c_1 | \dots | st_n \rightarrow c_n \rightarrow \tctx', \pctx', \Phi', C', f' 
@@ -618,8 +575,7 @@ To relate the state inference rules with the checking rules, we have the followi
 Given  $\tctx, \pctx \vdash c : \tau \Rightarrow \tctx', \pctx', q$ and $\tctx, \pctx, \Phi, f \vdash c \rightarrow \tctx', \pctx', \Phi', C', f'$, we have that $\m{solve}(\Phi|_p) \subseteq \pctx(p)$. 
 \\
 \\
-Finally to show that our state inference solutions are "optimal", we want to prove the following theorem:
-For all possible solutions $S$ of the state inference conditions $\Phi|_p$, the solution that minimizes $|S|$ is exactly the solution obtained by $\m{solve}(\Phi|_p)$. 
+ 
 
 \sai{state inference rules start here}
 

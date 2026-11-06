@@ -1,0 +1,27 @@
+\documentclass[acmsmall,screen,review,anonymous,nonacm]{acmart}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathpartir}
+\usepackage{listings}
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+
+
+\include{macros}
+\begin{document}
+
+\title{Leveraging Types and Typestate for Peripheral Cost Analysis}
+\author{Sai Divvela}
+\email{sdivvela@terpmail.umd.edu}
+\affiliation{\institution{University of Maryland} \city{College Park} \state{Maryland} \country{USA}}
+
+\author{Milijana Surbatovich}
+\email{milijana@umd.edu}
+\affiliation{\institution{University of Maryland} \city{College Park} \state{Maryland} \country{USA}}
+\setcctype{none}
+\settopmatter{printacmref=false, printccs=false}
+\maketitle
+
+\section{Introduction}
+Automatic Resource Analysis has long been used to statically obtain bounds for the resource consumption of programs. Resources can mean a variety of relevant metrics, including the total energy used, the end-to-end execution time, or the maximum amount of memory consumed. Many techniques exist for obtaining these bounds, ranging from static analyses to program logics to type based approaches. \sai{cite sources} Type based approaches such as Automatic Amortized Resource Analysis (AARA) provide an appealing approach to deriving resource bounds, as they enable compositional reasoning while being able to support a large variety of programs. These approaches can be used to derive a wide variety of bounds, including upper, lower and tight bounds. The bounds that these approaches derive, and in particular upper bounds are useful in a number of contexts, including job scheduling, and resource sensitive contexts such as smart contracts or embedded systems. For embedded systems in particular, a robust understanding of the resource requirements are necessary, especially as battery-constrained IoT devices become increasingly popular and operate in resource-constrained environments. To operate effectively, these devices need a robust understanding of their energy requirements, commonly referred to as the Worst Case Energy Consumption (WCEC), which is the maximum possible charge across a given execution. A key challenge for determining the WCEC of a program however, is the usage of \textit{peripherals}, which are external devices such as sensors, radios, and actuators. Current works on determining the WCEC often utilize static analysis based approaches based on path enumeration. \sai{cite sources} While these approaches can offer strong guarantees, they often model peripherals in a very conservative manner, therefore limiting the tightness of their bounds. As mentioned previously, AARA provides an appealing approach due to it's compositional nature. However, it often lacks knowledge of peripherals, making it hard to apply directly to embedded systems.   
+
+\end{document}
