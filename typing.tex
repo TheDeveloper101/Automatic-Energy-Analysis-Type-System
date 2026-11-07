@@ -147,7 +147,7 @@ $$
 % the way the timeout cost accounting works is that either the await finishes executing in which case we incur the cost of the await, or the timeout triggers and the fallback code executes in which case the cost is the cost of any peripherals active in the background during the timeout and then the cost of the fallback code
 \inferrule*[left=T-Await-Timeout]
 {
-\tctx(tid) = (p: \Vec{s_o}, q_a, f_a) \\ \tctx, \pctx, p: \Vec{s_i}, f \vdash c_{fb} \rightarrow \tctx_{fb}, \pctx_{fb}, f_{fb}, q_{fb} \\ \pctx_{fb}(p) = \Vec{s_{fb}} \\ \pctx(p) = \m{cap}(\Vec{s_i}, tid') \\ tid' = tid \\ \forall s \in \Vec{s_{fb}}, \text{stable}(s) \\ q_t = n * (\m{cost}(\pctx \setminus p) + \m{cost}(\cdot) + C_{\text{unstable}}(p : \Vec{s_i})) \\ q = \max(q_a, q_{fb} + q_t) \\ \pctx'' = \pctx[p : \Vec{s_i} \cup \Vec{s_{fb}} \cup \Vec{s_o}] \\ \tctx' = (\tctx \cup \tctx_{fb}) \setminus tid \\ n > 0
+\tctx(tid) = (p: \Vec{s_o}, q_a, f_a) \\ \pctx(p) = \m{cap}(\Vec{s_i}, tid') \\ tid' = tid \\ \tctx, \pctx[p: \Vec{s_i}], f \vdash c_{fb} \rightarrow \tctx_{fb}, \pctx_{fb}, f_{fb}, q_{fb} \\ \pctx_{fb}(p) = \Vec{s_{fb}} \\  \forall s \in \Vec{s_{fb}}, \text{stable}(s) \\ q_t = n * (\m{cost}(\pctx \setminus p) + \m{cost}(\cdot) + C_{\text{unstable}}(p : \Vec{s_i})) \\ q = \max(q_a, q_{fb} + q_t) \\ \pctx'' = \pctx[p : \Vec{s_{fb}} \cup \Vec{s_o}] \\ \tctx' = (\tctx \cup \tctx_{fb}) \setminus tid \\ n > 0
 }
 {
 \tctx, \pctx, f \vdash \text{await } tid \text{ timeout[n]} \ \{c_\text{fb}\} \rightarrow \tctx', \pctx'', q, \max(f, f_a, f_\text{fb})
@@ -229,9 +229,9 @@ We want to model hardware-software concurrency as well. Following the lead of Ab
 
 \begin{mathpar}
     \inferrule*[left=T-AsyncFun]
-    { \pctx(p) = \alpha_i \\ \Vec{s_i} = \text{solve}(\Phi|_{\alpha_i}) \\ \forall st \in \vec{s_i}, \text{unstable}(st) \\ \tctx, p : [\alpha_i], \Phi|_p, f \vdash c \rightarrow \tctx_a, p : [\alpha_o], \Phi_a, C_a, f_a \\ \vec{s_o} = \text{solve}(\Phi_a|_{\alpha_o}) \\ \forall st \in \vec{s_o},\ \text{stable}(st) \\ \pctx'(p) = \m{cap}([\alpha_i], tid) \\ \Phi' = \Phi \setminus \Phi|_p \\ C' =  C_\text{async spawn} + \m{cost}(\pctx \setminus p) + \m{cost}(\cdot) \\ tid \text{ fresh}
+    { \pctx(p) = \alpha_i \\ \Vec{s_i} = \text{solve}(\Phi|_{\alpha_i}) \\ \forall st \in \vec{s_i}, \text{unstable}(st) \\ \tctx, p : [\alpha_i], \Phi|_p, f \vdash c \rightarrow \tctx_a, p : [\alpha_o], \Phi_a, C'_a, f_a \\ C_a = C'_a[\beta \mapsto \pctx \setminus p] \\ \Vec{s_o} = \text{solve}(\Phi_a|_{\alpha_o}) \\ \forall st \in \vec{s_o},\ \text{stable}(st) \\ \pctx'(p) = \m{cap}([\alpha_i], tid) \\ \Phi' = \Phi \setminus \Phi|_p \\ C' =  C_\text{async spawn} + \m{cost}(\pctx \setminus p) + \m{cost}(\cdot) \\ tid \text{ fresh}
     }
-    { \tctx, \pctx, \Phi, f \vdash \text{let } tid = \text{async}(p)\ \{c\} \rightarrow \tctx[tid : (p : [\alpha_o], \Phi|_p, \Phi_a, C_a, f_a)], \pctx', \Phi', C', f
+    { \tctx, \pctx, \Phi, f \vdash \text{let } tid = \text{async}(p)\ \{c\} \rightarrow \tctx[tid : (p : [\alpha_o] :: \sigma, \Phi|_p, \Phi_a, C_a, f_a)], \pctx', \Phi', C', f
     }
     
     \inferrule*[left=T-Await-Timeout]
@@ -450,7 +450,7 @@ C = (tid:p,\text{skip})::C' \\ tid \neq \text{main} \\
 \inferrule*[left=E-Timeout-Running]
 {
 P(tid) = (p,c_a) \\ n\leq0 \\
-C = C_a\mathbin{+\!+}((tid':r,\text{await}^{\bullet}\ tid\text{ timeout}[n]\{c_{\text{fb}}\})::C_0)  \\ q = 0
+C = C_a ::((tid':r,\text{await}^{\bullet}\ tid\text{ timeout}[n]\{c_{\text{fb}}\})::C_0) \\ \m{allFramesOf}(C_a, tid) \\ q = 0
 }
 {
 (M,P,C,S,K) \rightsquigarrow_q
@@ -617,7 +617,7 @@ To account for ambient peripherals that are not visible at function declaration,
 
 \inferrule*[left=T-Call]
 {
-\tctx(f) = \tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f' \\
+\tctx(g) = \tau_1 \rightarrow \tau_2, C_f, \Phi_f|_{\alpha_i}, \vec{s_1}, \vec{s_2}, f' \\
 \alpha = \pctx(p) \\ 
 \vec{s} = \m{solve}(\Phi_f|_{\alpha_i} \land \Phi|_{\alpha} \land (\alpha_i = \alpha)) \\ \Vec{s} \subseteq \Vec{s_1} \\ 
 \tctx,\pctx, f \vdash e : \tau_1, C_a(f) \\
@@ -626,7 +626,7 @@ To account for ambient peripherals that are not visible at function declaration,
 \Phi' = \Phi \land \alpha \subseteq \vec{s_1} \land \alpha' \subseteq \vec{s_2} \\ C' = C_a(f) + C_f[\alpha \mapsto \Vec{s}][\beta \mapsto \pctx \setminus p]
 }
 {
-\tctx,\pctx,\Phi, f \vdash \text{let } x = f(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
+\tctx,\pctx,\Phi, f \vdash \text{let } x = g(e, p) \rightarrow \tctx[x : \tau_2],\pctx',\Phi', C', f'
 }
 
 \inferrule*[left=T-Let]
@@ -647,7 +647,7 @@ To account for ambient peripherals that are not visible at function declaration,
 
 \end{mathpar}
 
-The soundness theorem for Heliod is the following statement: Given $\tctx, \pctx \vdash c : \tau \Rightarrow \tctx', \pctx', q$ and $(M, P, c, S, K, T) \rightarrow^{q'} (M, P, \text{skip}, S, K, T)$ then $q' \leq q$.
+The soundness theorem for Heliod is the following statement: Given $\tctx, \pctx, f \vdash c : \tau \Rightarrow \tctx', \pctx', f, q$ and $(M,P,[(main:·, c)],S,K,0) \rightsquigarrow^* (M',P',[],S',K',T') $   with total cost $q'$ then $ q' \leq q$.
 \\
 \\
 To relate the state inference rules with the checking rules, we have the following theorem we want to prove:
