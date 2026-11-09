@@ -1,1 +1,15 @@
 \section{Language \& Type System Design} 
+
+Core calculus:
+    - Introduce syntax
+    - async/await for peripheral operations, explicit transition/downgrade statements
+    - Do not explicitly model rust ownership, but we assume it to be true
+    - Do not support unbounded loops/recursion due to their general lack of use in embedded programming
+Operational Semantics:
+    - Scheduler + stack of execution frames
+    - Model how embedded systems work to the best of our knowledge
+    - Explicit clock for timing, based on logical timesteps though
+    - Semantics are cost-aware, step charges a cost + advances the clock
+Typing:
+    - Important rules are transition/downgrade, function declaration, function call,  async, and await
+    - Explain how each of the rules work, state inference algorithm formally, and joining
