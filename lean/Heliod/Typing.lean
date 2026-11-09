@@ -43,7 +43,10 @@ T-Call instantiates it by function application, `Q_g f (b + cost(Δ ∖ p))`, wh
 * **Costs are scaled by the clock** (`f * …`), including the expression cost `q_e`.  The cost of
   `clock f'` is `clockCost f f'` (already clock-dependent, so not scaled again) plus the scaled
   background.  The argument of a call is evaluated at the caller's clock, the return expression
-  at the callee's exit clock.
+  at the callee's exit clock.  Both are steps that also charge every peripheral's background
+  (`f·(q_e + cost(Δ) + b)` in T-Call, `F f·(q_ret + cost(Δ_b) + b)` in T-FunDecl), like T-Let.
+  The paper's E-Call/E-Ret are free; charging expression cost *without* background would leave
+  time during which no peripheral is charged (found while proving `Accounting.lean`).
 * **Transition / downgrade charge `cost(Δ ∖ p)`** for the background — the moved peripheral is
   charged its transition cost instead of its background cost, so it is never counted twice.
   Both require the target state to be `stable`: unstable targets are T-Transition-Unstable,
@@ -52,7 +55,10 @@ T-Call instantiates it by function application, `Q_g f (b + cost(Δ ∖ p))`, wh
 * **`let` targets are not handles** (`Δ x = 0`), so a value binding cannot shadow a peripheral.
 * **T-Match** types arm `i` with `Δ[p : {stᵢ}]` (the paper's `Δ, p : stᵢ`), requires
   exhaustiveness `Δ(p) ⊆ {st₁,…,stₙ}`, and joins the arms with `∩`, `∪` and pointwise `max`.
-  Arms are typed by the mutual judgment `ArmsTyped`, which requires at least one arm.
+  **Refinement over the paper:** only *reachable* arms (`stᵢ ∈ Δ(p)`) are typed and charged;
+  the paper types and charges every arm, so an expensive arm for a state that cannot occur would
+  inflate the bound.  Arms are typed by the mutual judgment `ArmsTyped`, which requires at least
+  one reachable arm.
 * **`skip`** costs nothing and changes nothing (it is the semantics' terminal command).
 * **Clock positivity.**  `clock f'` requires `0 < f'` (the paper's `f' ∈ ℚ⁺`).
 -/
@@ -117,11 +123,12 @@ inductive Typed (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtx K St R) 
       Typed P M Ψ Γ₁ Δ₁ c₂ Γ₂ Δ₂ Q₂ F₂ →
       Typed P M Ψ Γ Δ (.seq c₁ c₂) Γ₂ Δ₂
         (fun f b => Q₁ f b + Q₂ (F₁ f) b) (fun f => F₂ (F₁ f))
-  /-- T-Match: exhaustive arms, each typed with `p` narrowed to its state. -/
+  /-- T-Match: exhaustive arms, each typed with `p` narrowed to its state.  The `match` step's
+  own background is charged per arm (inside `ArmsTyped`), with `p` narrowed too. -/
   | matchSt {Γ Δ p k S arms Γ' Δ' Q F} :
       Δ p = .live k S → S ⊆ arms.states →
-      ArmsTyped P M Ψ Γ Δ p k arms Γ' Δ' Q F →
-      Typed P M Ψ Γ Δ (.matchSt p arms) Γ' Δ' (fun f b => Q f b + f * (Δ.bg M + b)) F
+      ArmsTyped P M Ψ Γ Δ p k S arms Γ' Δ' Q F →
+      Typed P M Ψ Γ Δ (.matchSt p arms) Γ' Δ' Q F
   /-- T-Call: instantiate the callee's summary; the caller's other peripherals `Δ ∖ p` join
   the callee's ambient background (the paper's `q_f[Δ ∖ p]`). -/
   | call {Γ Δ x g e p sig S} :
@@ -130,21 +137,40 @@ inductive Typed (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtx K St R) 
       Δ x = 0 →
       Δ p = .live sig.pKind S → S ⊆ sig.sIn →
       Typed P M Ψ Γ Δ (.call x g e p) (Γ.bind x sig.retTy) (Δ.set p sig.pKind sig.sOut)
-        (fun f b => f * e.cost M + sig.cost f (b + (Δ.erase p).bg M)) sig.clk
+        (fun f b => f * (e.cost M + Δ.bg M + b) + sig.cost f (b + (Δ.erase p).bg M)) sig.clk
 
-/-- Typing of the arms of `match p with …` (`p` of kind `k`): the joined result of all arms.
-At least one arm is required. -/
+/-- Typing of the arms of `match p with …`, where `p` has kind `k` and possible states `S`: the
+joined result of the **reachable** arms (those whose state is in `S`).  Unreachable arms are
+skipped — they are neither typed nor charged.  At least one reachable arm is required.
+
+* `cons`: a reachable arm, joined with the rest;
+* `last`: a reachable arm after which every remaining arm is unreachable;
+* `skip`: an unreachable arm (`st ∉ S`), ignored.
+
+Each reachable arm's summary includes the `match` step itself, `f·(cost(Δ[p : {st}]) + b)`:
+when that arm runs, `p` is in state `st`, so its background is charged at `st` rather than at
+the worst state of `S`.  (Charging `f·(cost(Δ) + b)` outside the `max` would be sound but could
+exceed every arm's actual cost; see `IMPRECISION.md`.) -/
 inductive ArmsTyped (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtx K St R) :
-    TCtx K → PCtx K St → Var → K → Arms St R →
+    TCtx K → PCtx K St → Var → K → Finset St → Arms St R →
     TCtx K → PCtx K St → (R → R → R) → (R → R) → Prop where
-  | one {Γ Δ p k st c Γ' Δ' Q F} :
+  | last {Γ Δ p k S st c rest Γ' Δ' Q F} :
+      st ∈ S →
       Typed P M Ψ Γ (Δ.set p k {st}) c Γ' Δ' Q F →
-      ArmsTyped P M Ψ Γ Δ p k (.cons st c .nil) Γ' Δ' Q F
-  | cons {Γ Δ p k st c rest Γ₁ Δ₁ Q₁ F₁ Γ₂ Δ₂ Q₂ F₂} :
+      (∀ s ∈ rest.states, s ∉ S) →
+      ArmsTyped P M Ψ Γ Δ p k S (.cons st c rest) Γ' Δ'
+        (fun f b => Q f b + f * ((Δ.set p k {st}).bg M + b)) F
+  | cons {Γ Δ p k S st c rest Γ₁ Δ₁ Q₁ F₁ Γ₂ Δ₂ Q₂ F₂} :
+      st ∈ S →
       Typed P M Ψ Γ (Δ.set p k {st}) c Γ₁ Δ₁ Q₁ F₁ →
-      ArmsTyped P M Ψ Γ Δ p k rest Γ₂ Δ₂ Q₂ F₂ →
-      ArmsTyped P M Ψ Γ Δ p k (.cons st c rest) (Γ₁.inter Γ₂) (Δ₁.join Δ₂)
-        (fun f b => max (Q₁ f b) (Q₂ f b)) (fun f => max (F₁ f) (F₂ f))
+      ArmsTyped P M Ψ Γ Δ p k S rest Γ₂ Δ₂ Q₂ F₂ →
+      ArmsTyped P M Ψ Γ Δ p k S (.cons st c rest) (Γ₁.inter Γ₂) (Δ₁.join Δ₂)
+        (fun f b => max (Q₁ f b + f * ((Δ.set p k {st}).bg M + b)) (Q₂ f b))
+        (fun f => max (F₁ f) (F₂ f))
+  | skip {Γ Δ p k S st c rest Γ' Δ' Q F} :
+      st ∉ S →
+      ArmsTyped P M Ψ Γ Δ p k S rest Γ' Δ' Q F →
+      ArmsTyped P M Ψ Γ Δ p k S (.cons st c rest) Γ' Δ' Q F
 
 end
 
@@ -163,7 +189,7 @@ structure FunDeclTyped (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtx K
     Typed P M Ψ (TCtx.empty.bind d.arg d.argTy) (Finsupp.single d.parg (.live d.pKind d.sIn))
       d.body Γb Δb Qb Fb ∧
     HasTy Γb d.ret d.retTy ∧ Δb d.parg = .live d.pKind S' ∧ S' ⊆ d.sOut ∧
-    sig.cost = (fun f b => Qb f b + Fb f * d.ret.cost M) ∧ sig.clk = Fb
+    sig.cost = (fun f b => Qb f b + Fb f * (d.ret.cost M + Δb.bg M + b)) ∧ sig.clk = Fb
 
 /-- Typing a list of declarations in order, extending the signature context with each one.
 A function's body sees only the functions declared before it. -/

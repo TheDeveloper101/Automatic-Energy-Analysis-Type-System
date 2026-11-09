@@ -111,7 +111,7 @@ abbrev tr (s s' : TS) : ℕ := M.transCost .sensor s s'
 
 /-- The cost of `log_data` when called at clock `f` while peripherals the function cannot see
 draw background power `b`.  Each line is one costed step; every step charges `b`, so the
-ambient peripherals cost exactly `6·f·b` — whatever they are.
+ambient peripherals cost exactly `7·f·b` — whatever they are.
 
 Compared with the writeup's `C_l = C(temp:(α₀,Measure)) + 3·C(temp:Measure) + C_v + max(C_v,0)
 + C(temp:(Measure,Off))`:
@@ -120,7 +120,9 @@ Compared with the writeup's `C_l = C(temp:(α₀,Measure)) + 3·C(temp:Measure) 
 * there is a 4th `bg .measure` because T-If charges `cost(Δ)` for evaluating the condition, a
   step the writeup's table does not cost;
 * expression costs (`valCost`, `varCost`, `binopCost .eq`) are explicit;
-* the `if` costs its `then` branch: the `else skip` branch is free and takes no time. -/
+* the `if` costs its `then` branch: the `else skip` branch is free and takes no time;
+* evaluating the return expression is a step too: `temp` (now `Off`) and the ambient draw
+  background while it runs. -/
 def logDataCost (f b : ℕ) : ℕ :=
   -- transition(temp, Measure) from {Idle, Measure}
   f * (max (tr M .idle .measure) (tr M .measure .measure) + b)
@@ -132,8 +134,8 @@ def logDataCost (f b : ℕ) : ℕ :=
   + f * (M.binopCost .eq + M.varCost + M.valCost + bg M .measure + b)
   -- downgrade(temp, Off)
   + f * (tr M .measure .off + b)
-  -- ret := t
-  + f * M.varCost
+  -- ret := t, with temp now Off
+  + f * (M.varCost + bg M .off + b)
 
 /-- `log_data`'s signature: its cost summary is `logDataCost`, and it does not change the clock. -/
 def logDataSig : FunSig Kind TS ℕ where
@@ -187,7 +189,7 @@ theorem logData_typed : FunDeclTyped P M (fun _ => none) logData (logDataSig M) 
   case cost =>
     funext f b
     simp [logDataSig, logDataCost, bg, tr, logData, Expr.cost, CostModel.maxTrans,
-      CostModel.maxBg]
+      CostModel.maxBg, PEntry.bg]
     ring
   case clk => funext f; simp [logDataSig]
 
@@ -198,13 +200,13 @@ noncomputable def sigs : SigCtx Kind TS ℕ :=
   Function.update (fun _ => none) "log_data" (some (logDataSig M))
 
 /-- The expected cost of the whole program at clock `1`: `main`'s transition, the argument, and
-`log_data` called with `aux` ambient — `aux`'s background is charged once per step (6 steps
-inside `log_data` plus `main`'s transition). -/
+`log_data` called with `aux` ambient — `aux`'s background is charged once per step (7 steps
+inside `log_data`, plus `main`'s transition and argument). -/
 def expectedCost : ℕ :=
   -- main: transition(temp, Idle), aux in background
   (tr M .off .idle + bg M .off)
-  -- main: evaluate the argument `0`
-  + M.valCost
+  -- main: evaluate the argument `0`, temp (Idle) and aux (Off) in background
+  + (M.valCost + bg M .idle + bg M .off)
   -- log_data, with aux's background as its ambient cost
   + logDataCost M 1 (bg M .off)
 
@@ -214,7 +216,8 @@ def expectedCost : ℕ :=
 `1` with nothing ambient this is `expectedCost`.  The clock is unchanged and `temp` ends `Off`. -/
 theorem prog_typed :
     ∃ Γ' Δ' Q F, Program.Typed P M prog (sigs M) Γ' Δ' Q F ∧
-      (∀ f b, Q f b = f * (tr M .off .idle + bg M .off + b) + f * M.valCost
+      (∀ f b, Q f b = f * (tr M .off .idle + bg M .off + b)
+                      + f * (M.valCost + bg M .idle + bg M .off + b)
                       + logDataCost M f (b + bg M .off)) ∧
       Q 1 0 = expectedCost M ∧ (∀ f, F f = f) ∧ Δ' "temp" = .live .sensor {.off} := by
   apply Exists.intro; apply Exists.intro; apply Exists.intro; apply Exists.intro

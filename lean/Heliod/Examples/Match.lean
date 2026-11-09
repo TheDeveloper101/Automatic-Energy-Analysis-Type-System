@@ -58,17 +58,18 @@ variable (M : CostModel Kind TS ℕ)
 
 /-- `settle`'s cost at clock `f` with ambient background `b`.
 
-* the `match` costs the worse of its arms — `skip` is free and takes no time, the downgrade
-  costs `tr Measure Off` plus the ambient — plus the background of every peripheral at the
-  `match` itself: `temp` at its worst possible state in `{Idle, Measure}`, and the ambient;
+* the `match` costs the worse of its arms, each including the `match` step itself with `temp`
+  in that arm's state: the `Idle` arm is the step (`bg Idle` plus the ambient) followed by a free
+  `skip`; the `Measure` arm is the step (`bg Measure` plus the ambient) followed by the downgrade
+  (`tr Measure Off` plus the ambient);
 * the transition after the `match` starts from the joined states `{Idle, Off}`. -/
 def settleCost (f b : ℕ) : ℕ :=
   -- match temp with Idle → skip | Measure → downgrade(temp, Off)
-  f * (tr M .measure .off + b) + f * (max (bg M .idle) (bg M .measure) + b)
+  max (f * (bg M .idle + b)) (f * (tr M .measure .off + b) + f * (bg M .measure + b))
   -- transition(temp, Measure) from {Idle, Off}
   + f * (max (tr M .idle .measure) (tr M .off .measure) + b)
-  -- ret := x
-  + f * M.varCost
+  -- ret := x, with temp now Measure
+  + f * (M.varCost + bg M .measure + b)
 
 /-- `settle`'s signature. -/
 def settleSig : FunSig Kind TS ℕ where
@@ -94,13 +95,17 @@ theorem settle_typed : FunDeclTyped P M (fun _ => none) settle (settleSig M) := 
       apply Typed.matchSt (k := .sensor) (S := {.idle, .measure})
       · simp [settle]
       · simp [Arms.states]
-      · apply ArmsTyped.cons
+      · -- both arms are reachable from {Idle, Measure}
+        apply ArmsTyped.cons
+        · simp
         · exact Typed.skip
-        · apply ArmsTyped.one
-          apply Typed.downgrade (k := .sensor) (S := {.measure})
+        · apply ArmsTyped.last
           · simp
-          · trivial
-          · simp [P]
+          · apply Typed.downgrade (k := .sensor) (S := {.measure})
+            · simp
+            · trivial
+            · simp [P]
+          · simp [Arms.states]
     · -- transition(temp, Measure) from the joined states {Idle} ∪ {Off}
       apply Typed.transition (k := .sensor) (S := {.idle} ∪ {.off})
       · simp [PEntry.join]
@@ -123,7 +128,8 @@ noncomputable def sigs : SigCtx Kind TS ℕ :=
 `bg(aux)`.**  `temp` ends in `Measure`. -/
 theorem prog_typed :
     ∃ Γ' Δ' Q F, Program.Typed P M prog (sigs M) Γ' Δ' Q F ∧
-      (∀ f b, Q f b = f * (tr M .off .idle + bg M .off + b) + f * M.valCost
+      (∀ f b, Q f b = f * (tr M .off .idle + bg M .off + b)
+                      + f * (M.valCost + bg M .idle + bg M .off + b)
                       + settleCost M f (b + bg M .off)) ∧
       (∀ f, F f = f) ∧ Δ' "temp" = .live .sensor {.measure} := by
   apply Exists.intro; apply Exists.intro; apply Exists.intro; apply Exists.intro

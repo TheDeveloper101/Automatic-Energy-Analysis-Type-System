@@ -21,7 +21,7 @@ frame machine comes with the async extension.  The costs follow the paper's E-ru
 | `downgrade`  | `K·(cost(s, st) + bg(S ∖ p) + bg(A))`                 | E-Downgrade      |
 | `clock f'`   | `clockCost(K, f') + K·(bg(S) + bg(A))`                | E-Clock          |
 | `match`      | `K·(bg(S) + bg(A))` + chosen arm                       | E-Match-i        |
-| call         | `K·q_e` + body + `K_b·q_ret`                          | E-Call / E-Ret   |
+| call         | `K·(q_e + bg(S) + bg(A))` + body + `K_b·(q_ret + bg(S_b) + bg(A_b))` | E-Call / E-Ret |
 | `c₁; c₂`, `skip` | sum / `0`                                         | E-Seq / E-SeqDone|
 
 ## Design choices
@@ -240,7 +240,8 @@ inductive Eval (M : CostModel K St R) (Ψ : FCtx K St R) :
       d.ret.eval σb = some r →
       Sb d.parg = .at k s' →
       Eval M Ψ A σ S K (.call x g e p) (σ.set x r) (S.set p k s')
-        (K * e.cost M + qb + Kb * d.ret.cost M) Kb
+        (K * (e.cost M + S.bg M + ambBg M A) + qb
+          + Kb * (d.ret.cost M + Sb.bg M + ambBg M (A + (S.erase p).entries))) Kb
 
 namespace Program
 

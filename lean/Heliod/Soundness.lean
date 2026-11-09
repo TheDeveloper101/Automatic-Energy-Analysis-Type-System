@@ -100,7 +100,7 @@ structure SigValid (M : CostModel K St R) (Ψd : FCtx K St R) (d : FunDecl K St 
       d.body σb Sb qb Kb →
     ∃ r s', d.ret.eval σb = some r ∧ r.ty = sig.retTy ∧
       Sb d.parg = .at sig.pKind s' ∧ s' ∈ sig.sOut ∧
-      qb + Kb * d.ret.cost M ≤ sig.cost K (ambBg M A) ∧ Kb ≤ sig.clk K
+      qb + Kb * (d.ret.cost M + Sb.bg M + ambBg M A) ≤ sig.cost K (ambBg M A) ∧ Kb ≤ sig.clk K
   mono : SummaryMono sig.cost sig.clk
 
 /-- Every signature in `Ψ` is valid for the declaration of the same name in `Ψd`. -/
@@ -114,7 +114,7 @@ variable {Ψ : SigCtx K St R}
 omit [DecidableEq K] [DecidableEq St] in
 /-- Resetting a handle's state set does not change the shape: the shape of `Δ[p : S]` does not
 depend on `S`.  Lets `ArmsTyped.shape_eq` compare arms narrowed to different states. -/
-private theorem PCtx.shape_set_set (Δ : PCtx K St) (p : Var) (k : K) (S S' : Finset St) :
+theorem PCtx.shape_set_set (Δ : PCtx K St) (p : Var) (k : K) (S S' : Finset St) :
     (Δ.set p k S).shape = (Δ.set p k S').shape := by
   funext x; by_cases h : x = p <;> simp [PCtx.shape, h]
 
@@ -156,12 +156,13 @@ theorem Typed.shape_eq {Γ Δ c Γ' Δ' Q F} :
 
 /-- Arms version of `Typed.shape_eq`: every arm runs with `p` narrowed (`Δ[p : {stᵢ}]`), so the
 joined result has the shape of `Δ` with `p` at kind `k`. -/
-theorem ArmsTyped.shape_eq {Γ Δ p k arms Γ' Δ' Q F} :
-    ArmsTyped P M Ψ Γ Δ p k arms Γ' Δ' Q F → Δ'.shape = (Δ.set p k ∅).shape
-  | .one h => h.shape_eq.trans (PCtx.shape_set_set _ _ _ _ _)
-  | .cons h ha => by
+theorem ArmsTyped.shape_eq {Γ Δ p k S arms Γ' Δ' Q F} :
+    ArmsTyped P M Ψ Γ Δ p k S arms Γ' Δ' Q F → Δ'.shape = (Δ.set p k ∅).shape
+  | .last _ h _ => h.shape_eq.trans (PCtx.shape_set_set _ _ _ _ _)
+  | .cons _ h ha => by
       have h₁ := h.shape_eq.trans (PCtx.shape_set_set _ _ _ _ ∅)
       rw [PCtx.shape_join (h₁.trans ha.shape_eq.symm), h₁]
+  | .skip _ ha => ha.shape_eq
 
 end
 
@@ -305,30 +306,49 @@ theorem PeriphsOK.bg_le [IsOrderedRing R] {Δ : PCtx K St} {S : RPeriphs K St} (
   obtain ⟨rfl, hs⟩ := a
   exact M.bgCost_le_maxBg hs
 
-/-- **The arm a `match` runs is covered by the arms' joined typing.**  If `arms.find? s = some c`,
-then `c` is typed with `p` narrowed to `s`, its summaries are below the joined ones, and its
-output contexts are at least as precise as the joined ones. -/
-theorem ArmsTyped.find {Γ Δ p k arms Γ' Δ' Q F} :
-    ArmsTyped P M Ψ Γ Δ p k arms Γ' Δ' Q F → ∀ {s c}, arms.find? s = some c →
+omit [DecidableEq K] in
+/-- `find?` only returns an arm whose state is listed — so an arm selected for a reachable state
+can never lie among arms the refined T-Match ignored as unreachable. -/
+theorem Arms.mem_states_of_find? {R : Type} :
+    ∀ {arms : Arms St R} {s : St} {c : Cmd St R}, arms.find? s = some c → s ∈ arms.states
+  | .nil, _, _, h => by simp [Arms.find?] at h
+  | .cons st _ rest, s, c, h => by
+      simp only [Arms.find?] at h
+      split_ifs at h with hst
+      · simp [Arms.states, hst]
+      · simp [Arms.states, Arms.mem_states_of_find? h]
+
+/-- **The arm a `match` runs is covered by the arms' joined typing.**  If `arms.find? s = some c`
+for a reachable state `s ∈ S`, then `c` is typed with `p` narrowed to `s`, its summaries are below
+the joined ones, and its output contexts are at least as precise as the joined ones.  (Skipped,
+unreachable arms are never selected: their states are not in `S`.) -/
+theorem ArmsTyped.find {Γ Δ p k S arms Γ' Δ' Q F} :
+    ArmsTyped P M Ψ Γ Δ p k S arms Γ' Δ' Q F → ∀ {s c}, s ∈ S → arms.find? s = some c →
     ∃ Γc Δc Qc Fc, Typed P M Ψ Γ (Δ.set p k {s}) c Γc Δc Qc Fc ∧ Γ'.Sub Γc ∧ Δc.Le Δ' ∧
-      (∀ f b, Qc f b ≤ Q f b) ∧ (∀ f, Fc f ≤ F f)
-  | .one h, s, c, hf => by
+      (∀ f b, Qc f b + f * ((Δ.set p k {s}).bg M + b) ≤ Q f b) ∧ (∀ f, Fc f ≤ F f)
+  | .last _ h hrest, s, c, hs, hf => by
       simp only [Arms.find?] at hf
       split_ifs at hf with hst
       · cases hf; subst hst
         exact ⟨_, _, _, _, h, fun _ _ hx => hx, PCtx.Le.refl _, fun _ _ => le_rfl,
           fun _ => le_rfl⟩
-  | .cons h ha, s, c, hf => by
+      · exact absurd hs (hrest s (Arms.mem_states_of_find? hf))
+  | .cons _ h ha, s, c, hs, hf => by
       have hsh := (h.shape_eq.trans (PCtx.shape_set_set _ _ _ _ ∅)).trans ha.shape_eq.symm
       simp only [Arms.find?] at hf
       split_ifs at hf with hst
       · cases hf; subst hst
         exact ⟨_, _, _, _, h, TCtx.inter_sub_left _ _, PCtx.le_join_left hsh,
           fun _ _ => le_max_left _ _, fun _ => le_max_left _ _⟩
-      · obtain ⟨Γc, Δc, Qc, Fc, hc, hΓ, hΔ, hQ, hF⟩ := ha.find hf
+      · obtain ⟨Γc, Δc, Qc, Fc, hc, hΓ, hΔ, hQ, hF⟩ := ha.find hs hf
         exact ⟨Γc, Δc, Qc, Fc, hc, fun x τ hx => hΓ x τ (TCtx.inter_sub_right _ _ x τ hx),
           hΔ.trans (PCtx.le_join_right hsh), fun f b => (hQ f b).trans (le_max_right _ _),
           fun f => (hF f).trans (le_max_right _ _)⟩
+  | .skip hst ha, s, c, hs, hf => by
+      simp only [Arms.find?] at hf
+      split_ifs at hf with hst'
+      · exact absurd (hst' ▸ hs) hst
+      · exact ha.find hs hf
 
 omit [DecidableEq K] [OrderBot R] in
 /-- Signatures valid for the declarations have monotone summaries — the hypothesis `Typed.mono`
@@ -375,25 +395,27 @@ theorem Typed.mono (hM : M.WF) (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono
       have ⟨hF₂, hQ₂⟩ := h₂.mono hM hΨ
       ⟨hF₂.comp hF₁, fun _ _ _ _ hf hb =>
         add_le_add (hQ₁ _ _ _ _ hf hb) (hQ₂ _ _ _ _ (hF₁ hf) hb)⟩
-  | .matchSt _ _ ha =>
-      have ⟨hF, hQ⟩ := ha.mono hM hΨ
-      ⟨hF, fun _ _ _ _ hf hb =>
-        add_le_add (hQ _ _ _ _ hf hb) (mul_mono hf (add_le_add le_rfl hb))⟩
+  | .matchSt _ _ ha => ha.mono hM hΨ
   | .call hg _ _ _ _ =>
       have ⟨hF, hQ⟩ := hΨ _ _ hg
       ⟨hF, fun _ _ _ _ hf hb =>
-        add_le_add (mul_mono hf le_rfl) (hQ _ _ _ _ hf (add_le_add hb le_rfl))⟩
+        add_le_add (mul_mono hf (add_le_add le_rfl hb)) (hQ _ _ _ _ hf (add_le_add hb le_rfl))⟩
 
 /-- Arms version of `Typed.mono`: the joined summary is a pointwise `max` of monotone ones. -/
 theorem ArmsTyped.mono (hM : M.WF)
     (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono sig.cost sig.clk)
-    {Γ Δ p k arms Γ' Δ' Q F} : ArmsTyped P M Ψ Γ Δ p k arms Γ' Δ' Q F → SummaryMono Q F
-  | .one h => h.mono hM hΨ
-  | .cons h ha =>
+    {Γ Δ p k S arms Γ' Δ' Q F} : ArmsTyped P M Ψ Γ Δ p k S arms Γ' Δ' Q F → SummaryMono Q F
+  | .last _ h _ =>
+      have ⟨hF, hQ⟩ := h.mono hM hΨ
+      ⟨hF, fun _ _ _ _ hf hb =>
+        add_le_add (hQ _ _ _ _ hf hb) (mul_mono hf (add_le_add le_rfl hb))⟩
+  | .cons _ h ha =>
       have ⟨hF₁, hQ₁⟩ := h.mono hM hΨ
       have ⟨hF₂, hQ₂⟩ := ha.mono hM hΨ
       ⟨fun _ _ hf => max_le_max (hF₁ hf) (hF₂ hf), fun _ _ _ _ hf hb =>
-        max_le_max (hQ₁ _ _ _ _ hf hb) (hQ₂ _ _ _ _ hf hb)⟩
+        max_le_max (add_le_add (hQ₁ _ _ _ _ hf hb) (mul_mono hf (add_le_add le_rfl hb)))
+          (hQ₂ _ _ _ _ hf hb)⟩
+  | .skip _ ha => ha.mono hM hΨ
 
 end
 
@@ -464,11 +486,12 @@ theorem soundness (hM : M.WF) {Ψd : FCtx K St R} (hΨ : SigsValid M Ψd Ψ)
   | @matchSt A σ S K p arms k s c σ' S' q K' hSp hfind _ ih =>
     cases ht with
     | matchSt hp _ ha =>
-      obtain ⟨rfl, _⟩ := hS.at hSp hp
-      obtain ⟨Γc, Δc, Qc, Fc, hc, hΓ, hΔ, hQ, hF⟩ := ha.find hfind
-      obtain ⟨hq, hσ', hS', hK⟩ := ih hc hσ
-        (by rw [← RPeriphs.set_eq_self hSp]; exact hS.set _ _ (Finset.mem_singleton_self _))
-      exact ⟨add_le_add (hq.trans (hQ _ _)) (mul_mono le_rfl (add_le_add hS.bg_le le_rfl)),
+      obtain ⟨rfl, hs⟩ := hS.at hSp hp
+      obtain ⟨Γc, Δc, Qc, Fc, hc, hΓ, hΔ, hQ, hF⟩ := ha.find hs hfind
+      have hSs : PeriphsOK (Δ.set p k {s}) S := by
+        rw [← RPeriphs.set_eq_self hSp]; exact hS.set _ _ (Finset.mem_singleton_self _)
+      obtain ⟨hq, hσ', hS', hK⟩ := ih hc hσ hSs
+      exact ⟨(add_le_add hq (mul_mono le_rfl (add_le_add hSs.bg_le le_rfl))).trans (hQ _ _),
         hσ'.mono hΓ, hS'.mono hΔ, hK.trans (hF _)⟩
   | @call A σ S K x g e p d v k s σb Sb qb Kb r s' hgd hev hSp heb hret hSb _ =>
     cases ht with
@@ -484,7 +507,8 @@ theorem soundness (hM : M.WF) {Ψd : FCtx K St R} (hΨ : SigsValid M Ψd Ψ)
       rw [hSb] at hSb'; cases hSb'
       refine ⟨?_, hσ.bind hrty, hS.set _ _ hs'', hclk⟩
       rw [add_assoc]
-      refine add_le_add le_rfl (hcost.trans (hvalid.mono.2 _ _ _ _ le_rfl ?_))
+      refine add_le_add (mul_mono le_rfl (add_le_add (add_le_add le_rfl hS.bg_le) le_rfl))
+        (hcost.trans (hvalid.mono.2 _ _ _ _ le_rfl ?_))
       rw [ambBg_add_entries]
       exact add_le_add le_rfl (hS.erase p).bg_le
 
@@ -561,7 +585,7 @@ theorem eval_total (hM : M.WF) {Ψd : FCtx K St R} (hΨ : SigsValid M Ψd Ψ)
   | .matchSt hp hsub ha => fun A _ S Kc hσ hS => by
       obtain ⟨s, hSp, hs⟩ := hS.live hp
       obtain ⟨c, hfind⟩ := Arms.find?_of_mem (hsub hs)
-      obtain ⟨_, _, _, _, he⟩ := ArmsTyped.arm_eval_total hM hΨ ha hfind A _ S Kc hσ
+      obtain ⟨_, _, _, _, he⟩ := ArmsTyped.arm_eval_total hM hΨ ha hs hfind A _ S Kc hσ
         (by rw [← RPeriphs.set_eq_self hSp]; exact hS.set _ _ (Finset.mem_singleton_self _))
       exact ⟨_, _, _, _, .matchSt hSp hfind he⟩
   | .call hg hty _ hp hsub => fun _ _ _ _ hσ hS => by
@@ -572,25 +596,31 @@ theorem eval_total (hM : M.WF) {Ψd : FCtx K St R} (hΨ : SigsValid M Ψd Ψ)
       obtain ⟨_, _, hret, -, hSb, -⟩ := hvalid.bound _ _ _ _ _ _ _ _ hvt (hsub hs) heb
       exact ⟨_, _, _, _, .call hd hv hSp heb hret hSb⟩
 
-/-- Arms version of `eval_total`: the arm `find?` selects runs to completion, when `p` is in that
-arm's state.  (Named `arm_eval_total` so that, inside the mutual block, `eval_total` refers
-unambiguously to the command version.) -/
+/-- Arms version of `eval_total`: for a reachable state `s ∈ S`, the arm `find?` selects runs to
+completion when `p` is in state `s`.  (Named `arm_eval_total` so that, inside the mutual block,
+`eval_total` refers unambiguously to the command version.) -/
 theorem ArmsTyped.arm_eval_total (hM : M.WF) {Ψd : FCtx K St R} (hΨ : SigsValid M Ψd Ψ)
-    {Γ Δ p k arms Γ' Δ' Q F} : ArmsTyped P M Ψ Γ Δ p k arms Γ' Δ' Q F →
-    ∀ {s c}, arms.find? s = some c → ∀ (A : Multiset (K × St)) σ S K, MemOK Γ σ →
-    PeriphsOK (Δ.set p k {s}) S →
-    ∃ σ' S' q' K', Eval M Ψd A σ S K c σ' S' q' K'
-  | .one h => fun hf _ _ _ _ hσ hS => by
-      simp only [Arms.find?] at hf
-      split_ifs at hf with hst
-      cases hf; subst hst
-      exact eval_total hM hΨ h _ _ _ _ hσ hS
-  | .cons h ha => fun hf _ _ _ _ hσ hS => by
+    {Γ Δ p k S arms Γ' Δ' Q F} : ArmsTyped P M Ψ Γ Δ p k S arms Γ' Δ' Q F →
+    ∀ {s c}, s ∈ S → arms.find? s = some c → ∀ (A : Multiset (K × St)) σ Sr K, MemOK Γ σ →
+    PeriphsOK (Δ.set p k {s}) Sr →
+    ∃ σ' S' q' K', Eval M Ψd A σ Sr K c σ' S' q' K'
+  | .last _ h hrest => fun hs hf _ _ _ _ hσ hS => by
       simp only [Arms.find?] at hf
       split_ifs at hf with hst
       · cases hf; subst hst
         exact eval_total hM hΨ h _ _ _ _ hσ hS
-      · exact ArmsTyped.arm_eval_total hM hΨ ha hf _ _ _ _ hσ hS
+      · exact absurd hs (hrest _ (Arms.mem_states_of_find? hf))
+  | .cons _ h ha => fun hs hf _ _ _ _ hσ hS => by
+      simp only [Arms.find?] at hf
+      split_ifs at hf with hst
+      · cases hf; subst hst
+        exact eval_total hM hΨ h _ _ _ _ hσ hS
+      · exact ArmsTyped.arm_eval_total hM hΨ ha hs hf _ _ _ _ hσ hS
+  | .skip hst ha => fun hs hf _ _ _ _ hσ hS => by
+      simp only [Arms.find?] at hf
+      split_ifs at hf with hst'
+      · exact absurd (hst' ▸ hs) hst
+      · exact ArmsTyped.arm_eval_total hM hΨ ha hs hf _ _ _ _ hσ hS
 
 end
 
@@ -633,10 +663,11 @@ theorem FunDeclTyped.valid (hM : M.WF) {Ψd : FCtx K St R} (hΨ : SigsValid M Ψ
     obtain ⟨s', hSbp, hs'⟩ := hSb.live hΔb
     refine ⟨r, s', hr, hretTy ▸ hrt, hSbp, hsOut ▸ hS' hs', ?_, hclk ▸ hK⟩
     rw [hcost]
-    exact add_le_add hq (mul_mono hK le_rfl)
+    exact add_le_add hq (mul_mono hK (add_le_add (add_le_add le_rfl hSb.bg_le) le_rfl))
   case mono =>
     rw [hcost, hclk]
-    exact ⟨hFb, fun _ _ _ _ hf hb' => add_le_add (hQb _ _ _ _ hf hb') (mul_mono (hFb hf) le_rfl)⟩
+    exact ⟨hFb, fun _ _ _ _ hf hb' =>
+      add_le_add (hQb _ _ _ _ hf hb') (mul_mono (hFb hf) (add_le_add le_rfl hb'))⟩
 
 /-- Typing declarations in order preserves validity of the signature context, as long as the
 semantics' lookup `Ψd` finds each declaration under its name. -/

@@ -159,6 +159,24 @@ examples) and are the basic rewriting facts for the soundness proof. -/
     (Δ₁.join Δ₂).erase p = (Δ₁.erase p).join (Δ₂.erase p) := by
   ext x; by_cases h : x = p <;> simp [h]
 
+/-- Setting the only handle of a singleton context.  Lets `simp` compute a function body's
+output context (examples). -/
+@[simp] theorem set_single_self (p : Var) (e : PEntry K St) (k : K) (S : Finset St) :
+    PCtx.set (Finsupp.single p e) p k S = Finsupp.single p (PEntry.live k S) := by
+  ext x
+  by_cases h : x = p
+  · subst h; simp
+  · simp [h]
+
+/-- Joining two singleton contexts on the same handle — e.g. the output of an `if` in a function
+body. -/
+@[simp] theorem join_single [DecidableEq K] [DecidableEq St] (p : Var) (e₁ e₂ : PEntry K St) :
+    PCtx.join (Finsupp.single p e₁) (Finsupp.single p e₂) =
+      Finsupp.single p (PEntry.join e₁ e₂) := by
+  ext x
+  simp only [join_apply, Finsupp.single_apply]
+  split_ifs <;> rfl
+
 variable [CommSemiring R] [LinearOrder R] [OrderBot R]
 
 /-- The empty context has no background cost. -/

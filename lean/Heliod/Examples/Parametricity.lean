@@ -12,12 +12,12 @@ each call with `b + cost(Δ ∖ p)`.  These examples check that this behaves as 
 1. **Different callers** (`callers_differ_by_ambient`): the same `log_data` called from a
    program with no other peripherals and from one with two extra sensors.  The costs differ by
    exactly the extra sensors' background × the number of steps that run while they exist
-   (`7·f·(bg Off + bg Measure)`: `main`'s transition plus `log_data`'s 6 steps).
+   (`9·f·(bg Off + bg Measure)`: `main`'s transition and argument plus `log_data`'s 7 steps).
 2. **Nested calls** (`progN_typed`): `main → wrap → log_data`.  `main`'s other sensor is
    charged inside `log_data`, two calls down.
 3. **Branches of unequal duration** (`branchy_exact`): the summary keeps
    `max(q₁ + T₁·b, q₂ + T₂·b)` rather than the looser `max(q₁, q₂) + max(T₁, T₂)·b`; on a concrete
-   cost model the bound is `20` where the looser form would give `30`.
+   cost model the bound is `25` where the looser form would give `35`.
 
 Reuses the sensor platform `P`, the abbreviations `bg`, `tr`, and `log_data` with its summary
 `logDataCost` from `Heliod.Examples.LogData`.
@@ -32,11 +32,11 @@ variable (M : CostModel Kind TS ℕ)
 
 /-! ### 1. Different callers -/
 
-/-- **Ambient peripherals enter `log_data`'s cost linearly, with coefficient `6·f`** — one charge
+/-- **Ambient peripherals enter `log_data`'s cost linearly, with coefficient `7·f`** — one charge
 per costed step, at the caller's clock — whatever those peripherals are.  This is the
 parametricity property in its simplest form. -/
 theorem logDataCost_ambient (f b e : ℕ) :
-    logDataCost M f (b + e) = logDataCost M f b + 6 * f * e := by
+    logDataCost M f (b + e) = logDataCost M f b + 7 * f * e := by
   unfold logDataCost; ring
 
 /-- `log_data` called from a program whose only peripheral is `temp`. -/
@@ -54,7 +54,8 @@ def progB : Program Kind TS ℕ where
 /-- `progA`'s `main` instantiates `log_data`'s summary with no extra ambient cost. -/
 theorem progA_typed :
     ∃ Γ' Δ' Q F, Program.Typed P M progA (sigs M) Γ' Δ' Q F ∧
-      ∀ f b, Q f b = f * (tr M .off .idle + b) + f * M.valCost + logDataCost M f b := by
+      ∀ f b, Q f b = f * (tr M .off .idle + b) + f * (M.valCost + bg M .idle + b)
+                      + logDataCost M f b := by
   apply Exists.intro; apply Exists.intro; apply Exists.intro; apply Exists.intro
   refine ⟨⟨?nodup, ?decls, ?main⟩, ?cost⟩
   case nodup => simp [progA, logData]
@@ -74,13 +75,14 @@ theorem progA_typed :
       · simp [logDataSig]
   case cost =>
     intro f b
-    simp [logDataSig, tr, Program.initPCtx, Expr.cost, CostModel.maxTrans]
+    simp [logDataSig, tr, Program.initPCtx, Expr.cost, CostModel.maxTrans, bg, CostModel.maxBg]
     ring
 
 /-- `progB`'s `main` instantiates the *same* summary with ambient `bg(aux) + bg(aux2)`. -/
 theorem progB_typed :
     ∃ Γ' Δ' Q F, Program.Typed P M progB (sigs M) Γ' Δ' Q F ∧
-      ∀ f b, Q f b = f * (tr M .off .idle + (bg M .off + bg M .measure) + b) + f * M.valCost
+      ∀ f b, Q f b = f * (tr M .off .idle + (bg M .off + bg M .measure) + b)
+                      + f * (M.valCost + bg M .idle + (bg M .off + bg M .measure) + b)
                       + logDataCost M f (b + (bg M .off + bg M .measure)) := by
   apply Exists.intro; apply Exists.intro; apply Exists.intro; apply Exists.intro
   refine ⟨⟨?nodup, ?decls, ?main⟩, ?cost⟩
@@ -105,12 +107,12 @@ theorem progB_typed :
     ring
 
 /-- **The two callers' costs differ by exactly the extra sensors' background, charged once per
-step while they exist**: 7 steps (`main`'s transition and `log_data`'s 6), at clock `f`.
+step while they exist**: 9 steps (`main`'s transition and argument, `log_data`'s 7), at clock `f`.
 `log_data` itself was typed once, with no knowledge of either caller. -/
 theorem callers_differ_by_ambient :
     ∃ QA QB, (∃ Γ' Δ' F, Program.Typed P M progA (sigs M) Γ' Δ' QA F) ∧
       (∃ Γ' Δ' F, Program.Typed P M progB (sigs M) Γ' Δ' QB F) ∧
-      ∀ f b, QB f b = QA f b + 7 * f * (bg M .off + bg M .measure) := by
+      ∀ f b, QB f b = QA f b + 9 * f * (bg M .off + bg M .measure) := by
   obtain ⟨ΓA, ΔA, QA, FA, hA, hQA⟩ := progA_typed M
   obtain ⟨ΓB, ΔB, QB, FB, hB, hQB⟩ := progB_typed M
   refine ⟨QA, QB, ⟨ΓA, ΔA, FA, hA⟩, ⟨ΓB, ΔB, FB, hB⟩, fun f b => ?_⟩
@@ -134,9 +136,11 @@ def wrap : FunDecl Kind TS ℕ where
   body := .call "y" "log_data" (.var "x") "temp"
   ret := .var "y"
 
-/-- `wrap`'s summary: read `x`, run `log_data` at the *same* ambient background `b`, read `y`. -/
+/-- `wrap`'s summary: evaluate `x` (with `temp` in `{Idle, Measure}`), run `log_data` at the *same*
+ambient background `b`, evaluate `y` (with `temp` now `Off`). -/
 def wrapCost (f b : ℕ) : ℕ :=
-  f * M.varCost + logDataCost M f b + f * M.varCost
+  f * (M.varCost + max (bg M .idle) (bg M .measure) + b) + logDataCost M f b
+  + f * (M.varCost + bg M .off + b)
 
 /-- `wrap`'s signature. -/
 def wrapSig : FunSig Kind TS ℕ where
@@ -168,7 +172,8 @@ theorem wrap_typed :
   case sub => simp [wrap]
   case cost =>
     funext f b
-    simp [wrapSig, wrapCost, logDataSig, wrap, Expr.cost]
+    simp [wrapSig, wrapCost, logDataSig, wrap, Expr.cost, bg,
+      CostModel.maxBg, PEntry.bg]
   case clk => funext f; simp [wrapSig, logDataSig]
 
 /-- `main → wrap → log_data`, with an extra sensor `aux` (`Off`) in `main`. -/
@@ -184,13 +189,15 @@ noncomputable def sigsN : SigCtx Kind TS ℕ :=
 
 /-- **Peripherals two calls up are still charged.**  `main` instantiates `wrap` at ambient
 `b + bg(aux)`, and `wrap` passes it on to `log_data`; unfolding, `aux` is charged once per step of
-`log_data` (`6·f·bg Off`), plus once for `main`'s own transition. -/
+`wrap` (`9·f·bg Off`: its argument, `log_data`'s 7 steps, its return), plus once for each of
+`main`'s own two steps. -/
 theorem progN_typed :
     ∃ Γ' Δ' Q F, Program.Typed P M progN (sigsN M) Γ' Δ' Q F ∧
-      (∀ f b, Q f b = f * (tr M .off .idle + bg M .off + b) + f * M.valCost
+      (∀ f b, Q f b = f * (tr M .off .idle + bg M .off + b)
+                      + f * (M.valCost + bg M .idle + bg M .off + b)
                       + wrapCost M f (b + bg M .off)) ∧
       (∀ f b, wrapCost M f (b + bg M .off)
-                = 2 * f * M.varCost + logDataCost M f b + 6 * f * bg M .off) := by
+                = wrapCost M f b + 9 * f * bg M .off) := by
   apply Exists.intro; apply Exists.intro; apply Exists.intro; apply Exists.intro
   refine ⟨⟨?nodup, ?decls, ?main⟩, ?cost, ?unfold⟩
   case nodup => simp [progN, logData, wrap]
@@ -215,7 +222,7 @@ theorem progN_typed :
     ring
   case unfold =>
     intro f b
-    rw [wrapCost, logDataCost_ambient]
+    rw [wrapCost, wrapCost, logDataCost_ambient]
     ring
 
 /-! ### 3. Branches of unequal duration: the summary is exact -/
@@ -249,7 +256,7 @@ def branchyCost (f b : ℕ) : ℕ :=
           + f * (M.valCost + bg M .idle + b)))
       (f * (tr M .idle .measure + b))
   + f * (M.binopCost .eq + M.varCost + M.valCost + bg M .idle + b)
-  + f * M.varCost
+  + f * (M.varCost + max (bg M .idle) (bg M .measure) + b)
 
 /-- `branchy`'s signature. -/
 def branchySig : FunSig Kind TS ℕ where
@@ -288,7 +295,7 @@ theorem branchy_typed : FunDeclTyped P M (fun _ => none) branchy (branchySig M) 
   case cost =>
     funext f b
     simp [branchySig, branchyCost, bg, tr, branchy, Expr.cost, CostModel.maxTrans,
-      CostModel.maxBg, PEntry.bg]
+      CostModel.maxBg, PEntry.bg, PEntry.join]
   case clk => funext f; simp [branchySig]
 
 end Cost
@@ -307,11 +314,12 @@ def M₀ : CostModel Kind TS ℕ where
 
 /-- **The summary is exact at branches of unequal duration.**  Call `branchy` at clock `1` while one
 `Off` sensor is ambient (`b = 5`).  The long branch costs `3·5 = 15` (ambient only), the short
-branch `10 + 5 = 15`, and evaluating the condition `5`: the summary is `20`.  Splitting local cost
-from duration would give `max(0, 10) + max(3, 1)·5 + 5 = 30` — it charges the long branch's
+branch `10 + 5 = 15`, and evaluating the condition and the return expression `5` each: the summary
+is `25`.  Splitting local cost
+from duration would give `max(0, 10) + max(3, 1)·5 + 5 + 5 = 35` — it charges the long branch's
 duration *and* the short branch's transition, which no single run does. -/
 theorem branchy_exact :
-    branchyCost M₀ 1 5 = 20 ∧ max 0 10 + max 3 1 * 5 + 5 = 30 := by
+    branchyCost M₀ 1 5 = 25 ∧ max 0 10 + max 3 1 * 5 + 5 + 5 = 35 := by
   simp [branchyCost, M₀, bg, tr]
 
 end ParametricityExample
