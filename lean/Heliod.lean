@@ -18,3 +18,4 @@ import Heliod.AsyncInvariants
 import Heliod.AsyncProgram
 import Heliod.AsyncSafety
 import Heliod.AsyncAccounting
+import Heliod.AsyncSlack
