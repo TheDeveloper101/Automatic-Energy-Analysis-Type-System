@@ -1,14 +1,143 @@
 \section{Overview}
 
-- Heliod Basics:
-    - 3 main costs to consider
-    - Simple example with synchronous code
-    - Discuss how typestate and cost analysis go together
-- State inference:
-    - Motivate why we care with an example
-    - Walk through how the example works
-    - Talk about concretization
-- Asynchronous Peripherals
-    - We have hardware-software concurrency that we need to model
-    - Discuss stable vs unstable states
-    - Show with example on extending cost analysis and state inference to support this
+% - Heliod Basics:
+%     - 3 main costs to consider
+%     - Simple example with synchronous code
+%     - Discuss how typestate and cost analysis go together
+% - State inference:
+%     - Motivate why we care with an example
+%     - Walk through how the example works
+%     - Talk about concretization
+% - Asynchronous Peripherals
+%     - We have hardware-software concurrency that we need to model
+%     - Discuss stable vs unstable states
+%     - Show with example on extending cost analysis and state inference to support this
+
+
+Our type system Heliod has two primary goals: keeping track of peripheral state as accurately as possible, and using this information to obtain symbolic cost bounds on programs. To achieve these goals, we use a combination of typestate and cost analysis in order to provide robust and precise bounds. We aim to provide symbolic bounds to allow programmers to reason about the cost of their programs at a high level without needing to worry about particular hardware details. 
+
+\subsection{Heliod Basics}
+Heliod has to consider three main categories of costs when performing it's cost analysis: we have cost from executing statements of code on the main processor, cost from actively using a peripheral, and cost from peripherals that are active in the background. Typestate in particular helps us to reason about the latter two categories of cost due to the fact that a peripheral's program cost will vary based on it's internal state. While we can naively overapproximate the cost of using a peripheral by taking it's most expensive state and using it throughout, such an approach will result in bounds that are sound but far too overapproximate to be useful. 
+\paragraph{Simple Example}
+To explain how our type system works, we will first start with a simple example found in ~\autoref{fig:cost_analysis_example}, and then progressively introduce additional features and complexities that are needed for our system to be applicable to real embedded system programs. 
+\begin{figure}[h]
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|r|p{4cm}|l|}
+\hline
+\textbf{} & \textbf{Code} & \textbf{Cost Expression} \\
+\hline
+1 & \texttt{fn log\_data(temp) -> u64 \{} & \\
+2 & \ \texttt{transition(temp, Measure)} & $C(\text{temp}: (\alpha_0, \text{Measure}))$ \\
+3 & \ \texttt{let res = temp.measure()} & $C(\text{temp}: \text{Measure})$ \\
+4 & \ \texttt{let t = 0} & $C_v + C(\text{temp}: \text{Measure})$ \\
+5 & \ \texttt{if(res == 65) \{} & \\
+6 & \quad \texttt{t = 1} & $\text{max}(C_v, 0) + C(\text{temp}: \text{Measure})$ \\
+7 & \ \texttt{\}} & \\
+8 & \ \texttt{downgrade(temp, Off)} & $C(\text{temp}: (\text{Measure},\text{Off}))$ \\
+9 & \ \texttt{return t} & \\
+10 & \texttt{\}} & \\
+\hline
+\multicolumn{3}{|l|}{$\texttt{log\_data} \text{ cost} = C_l = C(\text{temp}: (\alpha_0, \text{Measure})) + 3C(\text{temp}: \text{Measure})$} \\
+\multicolumn{3}{|l|}{$\phantom{C_l} + \ C_v + \text{max}(C_v, 0) + C(\text{temp}: (\text{Measure}, \text{Off}))$} \\
+\hline
+\end{tabular}
+\caption{Simple example}
+\label{fig:cost_analysis_example}
+\end{figure}
+
+The example program models a simple task using a temperature sensor. The function \texttt{log\_data()} takes a temperature sensor as input, and immediately transitions it to the \texttt{Measure} state. This allows for the sensor to perform a measurement. Once doing so, it will conditionally write to a variable based on the result of this measurement, before turning the sensor off and then returning the written value. Peripherals are modeled as a lattice with downgrading policies. This is essentially like a state machine, but the lattice structure allows for ease of modeling. The explicit 
+\texttt{transition} and \texttt{downgrade} statements are used specify that a peripheral's state is changing from it's current state to the new state specified by the statement. A \texttt{transition} moves a peripheral's state up the lattice, and a \texttt{downgrade} moves it down. In order to report costs accurately, we need to determine which portion of the total overall cost can be charged to each of the three categories mentioned before: peripheral operations, background peripherals, or general code statements. We do this by broadly having three different types of cost expressions. We use $C(p : st)$ to refer to the cost of a peripheral $p$ being in a concrete state $st$. $C(p : (st, st'))$ refers to the cost of peripheral $p$ transitioning from $st$ to $st'$, and a plain $C$ refers to cost from main board execution with a possible subscript to identify it. For branches, we use a \texttt{max} operation to account for cost in places where the branch taken isn't statically known. In \autoref{fig:cost_analysis_example},  $C_v$ refers to the cost from writing to a variable. To provide the total cost bound, we analyze each statement individually, along with adding any possible background peripheral costs. Then we combine all of the cost statements to derive the total function cost. The main resources that we are interested in bounding are execution time and energy consumed. Both of these resources rely on the passage of time. To support our goal of providing a high-level symbolic bound for reasoning about programs, we reason about such resoruces in terms of logical timesteps, where one logical timestep corresponds to one command. 
+
+\paragraph{State Inference}
+In the example, we have $C(\text{temp}:(\alpha_0,\text{Measure}))$ as the first cost expression which was not covered before. This is due to the fact that the state of the temperature sensor at the beginning of \texttt{log\_data()} is not known. In fact, the initial state depends entirely on how the temperature sensor is used prior to \texttt{log\_data()} being called. To provide this insight, there are a number of alternatives. The first option is that we require programmers to annotate the intial state of each passed in peripheral. This is conceptually the easiest option, however it presents many complications. First, it requires programmers to know the exact state of the peripheral for every place the function can be called. For simple peripherals such as a temperature sensor, this can be possible. However for more complicated peripherals such as a UART driver or a radio, attempting to determine the exact state can be very difficult, and result in unnecessary annotation burdens, as well as increasing the potential for errors. 
+
+In contrast, our approach is to utilize a variant of type inference that we call \textit{state inference}. To make this concrete, we will consider the examples in \autoref{fig:usage_example}
+
+\begin{figure}[h]
+\small
+    \begin{minipage}{0.45\linewidth}
+\begin{verbatim}
+fn main() {
+  transition(temp, Idle);
+  let t = log_data(temp);
+}
+\end{verbatim}
+    \end{minipage}
+\begin{minipage}{0.45\linewidth}
+\begin{verbatim}
+fn main() {
+  transition(temp, Idle);
+   transition(temp, Measure);
+  let m = temp.measure();
+  let t = log_data(temp);
+}
+\end{verbatim}
+\end{minipage}
+\vspace{-6pt}
+    \caption{Usage example}
+\label{fig:usage_example}
+\end{figure}
+
+Here we have two different ways of using \texttt{log\_data()}. In the program on the left, the temperature sensor is  transitioned to the \texttt{Idle} state, and then immediately passed into \texttt{log\_data()}. In the program on the right, it transitions the temperature sensor all the way to the \texttt{Measure} state and performs a measurement prior to calling \texttt{log\_data()}. Importantly we want to support both possible uses of \texttt{log\_data} because a programmer may choose to perform additional measurements prior to calling the function. Requiring peripheral state annotations means that a programmer is forced to choose between one of the two use cases. One potential solution to this is to support "state polymorphism" where the function can accept either state. However the issue is that this can result in bounds being unnecessarily conservative as the analysis will not know the exact state passed in leading to overapproximation, and we need the cost bound to be sound regardless of what state is passed in. With state inference, we are able to determine the exact state a peripheral will be in at the call site, therefore allowing for tighter bounds. To show how it works, we use \autoref{fig:concretization-and-inference} as an example.
+
+\begin{figure}[h]
+  \centering
+  \small
+  \begin{tabular}{ll}
+    \texttt{fn main() \{} & temp = $[\alpha'_0]$\\
+    \texttt{\quad transition(temp, Idle);} & temp = $[\alpha'_1 :: \alpha'_0],$ \\ \text{} & $\Phi = \alpha'_1 = \texttt{Idle} \land \alpha'_0 \leq \alpha'_1$ \\
+    \texttt{\quad let t = log\_data(temp);} & $\m{solve}(\alpha'_1, \Phi \land \alpha'_1 \leq \texttt{Measure}) = \texttt{Idle}$ \\
+    \texttt{\}} & temp = $[\texttt{Off} :: \texttt{Measure}  :: \texttt{Idle}:: \texttt{Off}]$\\
+  \end{tabular}
+  \vspace{-6pt}
+  \caption{Concretization and Inference Example.}
+  \label{fig:concretization-and-inference}
+\end{figure}
+
+At the start of \texttt{main()}, we have no knowledge of the state of the temperature sensor. As a result, we start by assigning it a state variable $\alpha$---analogous to a type variable---and storing it in a \textit{stack}. This is because every time we encounter a \texttt{transition} or \texttt{downgrade} statement, we create a new state variable and push it onto the stack associated with the peripheral. We represent this stack by $[\alpha]$. The creation of this stack maintains an SSA-like property, which is useful for understanding how peripheral state evolves over time, as well as keeping track of what state is the most current. 
+
+Because we transition to the \texttt{Idle} state, we add the constraint that $\alpha'_0 \leq \alpha'_1$ since that is required for the transition to be valid. When we encounter the \texttt{log\_data} function call, we combine the constraints we have collected thus far with any constraints known within \texttt{log\_data}. In this case, we know that \texttt{temp} will transition into the \texttt{Measure} state, so we have the constraint that $\alpha_0 \leq \texttt{Measure}$, where $\alpha_0$ is the state of $\texttt{temp}$ on entry to \texttt{log\_data}. We rename $\alpha_0$ to be $\alpha'_1$ since $\alpha'_1$ refers to the current state of the temperature sensor. Then, we take all of those constraints and solve for them giving the solution $\alpha'_1 = \texttt{Idle}$. We refer to this process as \textit{lazy} concretization of $\alpha_0$ since we chose not to solve for it until \texttt{log\_data} was called and we had additional information about the temperature sensor's state. On the flip side, we were immediately able to solve for the state of the peripheral after line 8 in \texttt{log\_data} since the peripheral's state only depends on the state of the peripheral after line 2 which is fully known. This is what we refer to as \textit{eager} concretization.
+
+To represent the cost of peripherals in an unknown state prior to concretization, we have two additional cost expressions. We use $C(p : \alpha)$ represents the cost of a peripheral being in an unknown state $\alpha$ and $C(p : (\alpha, st))$ to represent the cost of transitioning from an unknown state to a concrete one. Using this information, it allows us to derive the following cost bound for \texttt{main}: $C(\text{temp}: (\texttt{Off}, \texttt{Idle})) + C_l[\alpha_0 \mapsto \texttt{Idle}]$ where $C_l$ refers to the cost bound for \texttt{log\_data} derived earlier. At the very end of \texttt{main}, the temperature sensor stack is given by $[\texttt{Off} :: \texttt{Measure} :: \texttt{Idle} :: \texttt{Off}]$, where the latter two states come from analyzing \texttt{log\_data()}.
+
+\subsection{Asynchronous Operations}
+As mentioned in Section 2, embedded systems commonly exhibit hardware-software concurrency. The primary difficulty with this is that the state of peripherals can be changed by hardware \textit{automatically} and in a manner that is invisible to software. This provides an immediate challenge as such a change can potentially violate invariants that Heliod depends on to ensure peripheral's are used correctly and the cost analysis is accurate. In order to deal with this, we follow Abacus \cite{abacus} and define a separation between peripheral states. We have \textit{stable} states which are states where all of the incoming and outgoing transitions are governed by software. Any state that has \textit{at least} one transition governed by hardware is marked as \textit{unstable}. This means that if a peripheral is in an unstable state, it can transition from it at any time, even without needing to notify software. 
+
+We use \texttt{async/await} syntax to represent the hardware-software concurrency exhibited by unstable states. Furthermore, we require that such operations are \textit{peripheral capturing}, meaning the peripheral is no longer available to the main program until the operation completes. This allows us to model the concurrency exhibited by peripherals as they will be able to perform their own operations while the main program executes. 
+
+To deal with unstable states in our analysis, rather than dealing with each individual unstable state, we instead look at the set of hardware reachable states. A state is hardware reachable if there is a hardware-initiated transition from the current state to that state. Then within such sets, we take the maximum possible cost to ensure that any bounds that we report are sound. We show how the cost analysis works in \autoref{fig:async-example}. 
+\begin{figure}
+\small
+\begin{tabular}{|r|l|l|}
+\hline
+ & \textbf{Code} & \textbf{Cost Expression} \\
+\hline
+1  & \texttt{fn sample(temp, buf) \{} & \\
+2  & \texttt{\ \,transition(temp, Idle)} & $\Ctr{temp}{Off}{Idle}$ \\
+3  & \texttt{\ \,transition(temp, Warmup)} & $\Ctr{temp}{Idle}{Warmup}$ \\
+4  & \texttt{\ \,let h = async(temp) \{} & $C_s$ \\
+5  & \texttt{\ \ \ transition(temp, Ready)} & $C_a$ \\ 6  & \texttt{\ \,\}} & \\
+7  & \texttt{\ \,let c = checksum(buf)} & $C_k + C_u$ \\ 8  & \texttt{\ \,await h timeout[5] \{} & $\max(C_a, C_t + C_f)$ \\ 9  & \texttt{\ \ \ downgrade(temp, Idle)} & $C_f$ \\
+10 & \texttt{\ \,\}} & $C_t$ \\
+11 & \texttt{\ \,match temp with} & \\
+12 & \texttt{\ \ \ | Ready -> let r = 1} & $C_v + \Cst{temp}{Ready}$ \\
+13 & \texttt{\ \ \ | Idle -> let r = 0} & $C_v + \Cst{temp}{Idle}$ \\
+14 & \texttt{\}} & \\
+\hline
+\multicolumn{3}{|l|}{\begin{tabular}[t]{@{}l@{}}
+sample cost $ = \Ctr{temp}{Off}{Idle} + \Ctr{temp}{Idle}{Warmup} + C_s + C_k + C_u$ \\
+\quad $+\ \max(C_a, C_t + C_f) + \max(C_v + \Cst{temp}{Ready},\ C_v + \Cst{temp}{Idle})$ \\
+\quad where $C_a = \max(\Ctr{temp}{Warmup}{Ready}, \Ctr{temp}{Conv}{Ready})$ \\
+\quad $C_f = \max(\Ctr{temp}{Warmup}{Idle}, \Ctr{temp}{Conv}{Idle})$ \\
+\quad $C_u = \max(\Cst{temp}{Warmup}, \Cst{temp}{Conv})$, \ $C_t = 5\,C_u$
+\end{tabular}} \\
+\hline
+\end{tabular}
+\caption{Asynchronous example}
+\label{fig:async-example}
+\end{figure}
+
+In this example, we update the temperature sensor lattice to be the following states: [\texttt{Off}, \texttt{Idle}, \texttt{Warmup}, \texttt{Conv}, \texttt{Ready}] where \texttt{Off} < \texttt{Idle} < \texttt{Warmup} < \texttt{Conv} < \texttt{Ready}, and there are downgrade policies from \texttt{Warmup}, \texttt{Conv}, and \texttt{Ready} to \texttt{Idle} and from \texttt{Idle} to \texttt{Off}. 
+
+\sai{i will wait to finish this section until we have our meeting to discuss any changes with the async/await rules }
