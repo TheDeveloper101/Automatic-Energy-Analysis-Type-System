@@ -153,5 +153,5 @@ outer ambient `0`).
   tighter after branches.  Costs: a mutual lemma over every `TypedA` / `ArmsTypedA` rule;
   `async` narrows `W_p`, hence the thread's `V` (breaks `SameIds`, changes `ThreadOK`); closure of
   the narrowed context remains a side condition.
-* **Later:** embedding `Typed → TypedA`; slack for async (via "an async is a closure called
+* **Done:** embedding `Typed → TypedA` (`Embed.lean`). **Later:** slack for async (via "an async is a closure called
   at the spawn, at the window ambient").
