@@ -18,14 +18,15 @@ if no run attains it.  This file proves:
   particular when its typed set is a single state; an `ambient` / `window` item vanishes when
   the layer's typed ambient bound equals the actual background it cannot see.
 
-**Part 2a — every await leaves the body or the fallback unpaid** (`CfgTyped.stepsR`,
-`Program.await_gap`).  A waiting frame is removed only by a join or a timeout (`mstepS`'s last
-conclusion: any step after which `main` no longer waits released a `fallback` or `abandon`
-item), and a final configuration has none (`Config.Final.not_waits`).  So in a complete run,
-every await that started releases the fallback's typed summary (joined: the fallback never ran)
-or the thread's reservation (timed out: the body never finished), and the run's cost plus that
-item stays within the bound.  T-Await's `Q_a + (n + f)·w + Q_fb` pays for both; no schedule
-uses both.
+**Part 2a — every await releases its fallback or the thread's leftover reservation**
+(`CfgTyped.stepsR`, `Program.await_gap`).  A waiting frame is removed only by a join or a
+timeout (`mstepS`'s last conclusion: any step after which `main` no longer waits released a
+`fallback` or `abandon` item), and a final configuration has none (`Config.Final.not_waits`).
+So in a complete run, every await that started releases the fallback's typed summary (joined:
+the fallback never ran) or the thread's *remaining* reservation (timed out), and the run's cost
+plus that item stays within the bound.  The `abandon` amount can be small: a thread cut off just
+before its last step leaves only what that step was reserved.  So this is not a claim that
+T-Await's `Q_a + (n + f)·w + Q_fb` is far from attainable (see Part 3).
 
 **Part 2b — the waiting allowance is rounded up** (for cost domains with additive cancellation,
 `[AddLeftReflectLE R]`, as `ℕ`, `ℚ≥0`, `ℝ≥0`) (`waitAllow_tick_exact`, `waitAllow_last`,
@@ -41,9 +42,16 @@ clock).  The schedule that never runs the awaited thread waits out the budget an
 `m` waiting ticks with `rem ≤ m·K ≤ rem + K`, store and clock unchanged, the thread dropped
 without having run (its whole body reservation abandoned), and the fallback runs.  With the
 devices at the frame's worst states the waiting costs between `rem·w` and `(rem + K)·w`, so
-T-Await's waiting charge `(rem + K)·w` is attained up to one tick.  Together with Part 2a: the
-timeout branch can (nearly) use the waiting and the fallback, the join branch the body, but no
-schedule both — the motivation for a `max` form of T-Await.
+T-Await's waiting charge `(rem + K)·w` is attained up to one tick.
+
+**What T-Await's charge over-counts.**  The sum `Q_a + (n + f)·w + Q_fb` is close to attainable:
+the schedule that lets `main` wait most of the budget, then runs the thread until just before its
+last step and times out, pays almost all of `Q_a`, the waiting not overlapped by the body, and
+`Q_fb`.  So a `max(join, timeout)` form of the rule would be **unsound** (it misses the partly
+run body followed by the fallback).  What the sum really over-counts is the *overlap* — the
+body's running time also drains the waiting budget, about `d·w` for a body of duration `d` (the
+`wait` items released while a thread runs) — plus the cut-off step and the rounding of Part 2b.
+Charging only that would need a lower bound on the body's duration in the judgment.
 -/
 
 set_option linter.unusedSectionVars false
@@ -213,7 +221,7 @@ theorem CfgTyped.stepsR (hM : M.WF)
       CfgTyped P M Ψ Am c' Φ' ∧
       (∀ i ∈ L, ∃ c₁ c₂ q₀ q₁, Steps P M Ψd Am c q₀ c₁ ∧ MStep P M Ψd Am c₁ q₁ c₂ ∧
         i.Spec P M Ψ Am c₁ c₂) ∧
-      q + ASlack.total L + Φ' ≤ Φ ∧
+      q + ASlack.total L + Φ' = Φ ∧
       (c.Waits → ¬ c'.Waits → ∃ i ∈ L, i.kind = .fallback ∨ i.kind = .abandon) := by
   induction h with
   | refl =>
@@ -232,8 +240,8 @@ theorem CfgTyped.stepsR (hM : M.WF)
     · rw [ASlack.total_append]
       calc q₀ + q' + (ASlack.total L₁ + ASlack.total L₂) + Φ'
           = q₀ + ASlack.total L₁ + (q' + ASlack.total L₂ + Φ') := by ring
-        _ ≤ q₀ + ASlack.total L₁ + Φ₁ := add_le_add le_rfl hle'
-        _ ≤ Φ := hle₁
+        _ = q₀ + ASlack.total L₁ + Φ₁ := by rw [hle']
+        _ = Φ := hle₁
     · by_cases hw₁ : c₁.Waits
       · obtain ⟨i, hi, hk⟩ := hres₂ hw₁ hn
         exact ⟨i, List.mem_append_right _ hi, hk⟩
@@ -244,9 +252,10 @@ theorem CfgTyped.stepsR (hM : M.WF)
 passes through a configuration where `main` waits on a thread.  The rest of the run releases a
 `fallback` item (the thread was joined: the fallback's typed summary, never run) or an
 `abandon` item (it timed out: the thread's reservation, unused), specified at the step that
-released it — and the run's cost plus that item is still within the bound.  So T-Await's
-charge `Q_a + (n + f)·w + Q_fb`, which pays for the body *and* the fallback, is never attained:
-every await leaves one of them unused. -/
+released it — and the run's cost plus that item is still within the bound.  T-Await's charge
+`Q_a + (n + f)·w + Q_fb` pays for the body *and* the fallback; every await leaves the fallback
+or part of the body's reservation unused.  The unused part of the body can be small (a thread
+cut off just before its last step), so the sum is nearly attainable; see the module doc. -/
 theorem Program.await_gap (hM : M.WF) (hP : P.WF) {prog : Program K St R}
     {Ψ : SigCtxA K St R} {Γ' : TCtx K} {Δ' W : PCtx K St} {Q : R → R → R} {F : R → R}
     (ht : prog.TypedA P M Ψ Γ' Δ' W Q F) {K₀ q₁ q₂ : R} {c₁ c : Config K St R}
@@ -269,7 +278,7 @@ theorem Program.await_gap (hM : M.WF) (hP : P.WF) {prog : Program K St R}
   calc q₁ + q₂ + i.amount ≤ q₁ + (q₂ + ASlack.total L + Φ') := by
         rw [add_assoc]
         exact add_le_add le_rfl (le_trans (add_le_add le_rfl hi') le_self_add)
-    _ ≤ q₁ + Φ₁ := add_le_add le_rfl hle
+    _ = q₁ + Φ₁ := by rw [hle]
     _ ≤ Q K₀ 0 := hle₁
 
 /-! ### Part 3: an adversarial schedule attains the waiting charge
@@ -277,9 +286,9 @@ theorem Program.await_gap (hM : M.WF) (hP : P.WF) {prog : Program K St R}
 Under the schedule that never runs the awaited thread, `main` waits out its whole budget and
 times out: the waiting costs `m` ticks with `rem ≤ m·K ≤ rem + K`, the thread's body never runs
 (its entire reservation is abandoned), and the fallback runs.  So T-Await's waiting part
-`(rem + K)·w` is attained up to one tick when the devices are at the frame's worst states, and
-together with Part 2a the bound's `Q_a + (n + f)·w + Q_fb` is approached by the timeout branch
-alone — the body's `Q_a` is the part no such schedule uses. -/
+`(rem + K)·w` is attained up to one tick when the devices are at the frame's worst states.  (A
+schedule that instead runs the thread almost to completion before the timeout also pays most of
+`Q_a`; see the module doc for why the sum is nearly attainable.) -/
 
 /-- **Waiting ticks to the end of the budget.**  If `main`'s running activation has a waiting
 frame on a pending thread with budget `rem ≤ m·K`, the machine can wait it out: some `m'` ticks

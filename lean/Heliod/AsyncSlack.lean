@@ -4,10 +4,9 @@ import Heliod.AsyncProgram
 # Async slack: where the bound exceeds a run's cost
 
 Soundness (`Program.MRun.soundnessA`) says a run costs at most `Q K₀ 0`.  This file splits the
-gap: the bound is the run's cost, plus a list of **slack items** released along the run, plus a
-residual `r`:
+gap exactly: the bound is the run's cost plus a list of **slack items** released along the run:
 
-  `Q K₀ 0 = q + Σ items + r`.
+  `Q K₀ 0 = q + Σ items`.
 
 Each item has a kind and an amount that is a typed quantity minus an actual one, at the step that
 released it (`ASlack.Spec`, `AsyncConfig.lean`).
@@ -44,20 +43,19 @@ activation after the step.
 Attribution differs from the sync `SlackRun` in one respect: ambient slack is released per step
 (the device-level gap at that moment), not once per call.
 
-**The residual `r`** is the final potential plus whatever the remaining `≤` steps of the proof
-leave.  Those steps drop only contributions that typing makes zero (a finished thread's empty
-stack, a joined thread's `done` contribution) or keep the potential unchanged (scheduling,
-hardware steps), and a final configuration's potential is `0` (its only stack is `main`'s, empty,
-with no pending thread).  So `r` is expected to be `0`; proving `Q K₀ 0 = q + Σ items` exactly
-would need every step lemma restated as an equality, which is not done.
+**Exactness.**  Every step lemma of the soundness proof is an equality: a step's cost plus the
+items it releases is exactly the drop in potential (dropped thread contributions are zero by
+typing: a finished stack, a joined `done` thread), and a final configuration has potential `0`
+(`CfgTyped.final_zero`).  So the decomposition is exact: `Q K₀ 0 = q + Σ items`.
 
 ## Results
 
 * `CfgTyped.stepsS` — along any run from a typed configuration, cost plus released items plus
-  final potential is at most the initial potential; each item is specified at the step of the
-  run that released it.
-* `Program.slack_decompositionA` — for a whole program run: `Q K₀ 0 = q + Σ items + r`, each
-  item specified at the step of the run that released it.
+  final potential *equals* the initial potential; each item is specified at the step of the run
+  that released it.
+* `CfgTyped.final_zero` — a final configuration has potential `0`.
+* `Program.slack_decompositionA` — for a whole program run: `Q K₀ 0 = q + Σ items`, each item
+  specified at the step of the run that released it.
 -/
 
 set_option linter.unusedSectionVars false
@@ -79,7 +77,7 @@ theorem CfgTyped.stepsS {Ψ : SigCtxA K St R} (hM : M.WF)
       CfgTyped P M Ψ Am c' Φ' ∧
       (∀ i ∈ L, ∃ c₁ c₂ q₀ q₁, Steps P M Ψd Am c q₀ c₁ ∧ MStep P M Ψd Am c₁ q₁ c₂ ∧
         i.Spec P M Ψ Am c₁ c₂) ∧
-      q + ASlack.total L + Φ' ≤ Φ := by
+      q + ASlack.total L + Φ' = Φ := by
   induction h with
   | refl =>
     intro Φ hc
@@ -97,26 +95,54 @@ theorem CfgTyped.stepsS {Ψ : SigCtxA K St R} (hM : M.WF)
     · rw [ASlack.total_append]
       calc q₀ + q' + (ASlack.total L₁ + ASlack.total L₂) + Φ'
           = q₀ + ASlack.total L₁ + (q' + ASlack.total L₂ + Φ') := by ring
-        _ ≤ q₀ + ASlack.total L₁ + Φ₁ := add_le_add le_rfl hle'
-        _ ≤ Φ := hle₁
+        _ = q₀ + ASlack.total L₁ + Φ₁ := by rw [hle']
+        _ = Φ := hle₁
 
-/-- **Async slack decomposition.**  For a program well typed under `TypedA`, run to
+/-- **A finished stack's thread view has no pending thread** (its empty control stack's final
+thread context is its starting one, which a bottom layer requires to be empty). -/
+theorem StackOK.finished_tv {E : Option (DevEnv St)} {Am : Multiset (K × St)} {σ : Mem}
+    {H : Var → Option Dev} {T : Var → Option ThreadId} {D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am E [⟨σ, H, T, [], none⟩] D Kc Φ X Θ Δ b bb tv Vs) : tv.Θ.IsEmpty := by
+  cases h with
+  | base hct _ hΘf => cases hct; exact hΘf
+
+/-- **A final configuration has potential `0`**: `main`'s stack is finished (summary `0`) and no
+thread is pending. -/
+theorem CfgTyped.final_zero {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
+    (hc : CfgTyped P M Ψ Am c Φ) (hf : c.Final) : Φ = 0 := by
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, -, -, -, -, -,
+    -, -, -, rfl⟩ := hc
+  obtain ⟨σ, H, T, hs⟩ := hf
+  rw [hs] at hsegs
+  cases tsegs with
+  | nil =>
+    simp only [List.nil_append, List.cons.injEq, Seg.mk.injEq, true_and, and_true] at hsegs
+    obtain ⟨rfl, rfl⟩ := hsegs
+    have htE : tids = ∅ :=
+      Finset.eq_empty_of_forall_notMem fun t ht => (htids t).1 ht (hst.finished_tv t)
+    rw [hst.finished_zero, htE, Finset.sum_empty, add_zero]
+  | cons s₀ t₀ =>
+    simp only [List.cons_append, List.cons.injEq] at hsegs
+    obtain ⟨-, h⟩ := hsegs
+    cases t₀ <;> simp at h
+
+/-- **Async slack decomposition, exact.**  For a program well typed under `TypedA`, run to
 completion on the machine from clock `K₀` (any schedule, any hardware behaviour), the bound is
-the run's cost, plus the async slack items released along the run, plus a residual:
-`Q K₀ 0 = q + Σ items + r`.  Each item is a typed quantity at the step of the run that released
-it (schedule kinds `wait`, `fallback`, `abandon`; charge kinds `state`, `envelope`, `transition`,
-`ambient`, `window`; structural kinds `branch`, `arm`, `clock`).  The residual is the final
-potential plus the few steps not yet itemized (see the module doc). -/
+the run's cost plus the async slack items released along the run:
+`Q K₀ 0 = q + Σ items`, with nothing left over.  Each item is a typed quantity at the step of
+the run that released it (schedule kinds `wait`, `fallback`, `abandon`; charge kinds `state`,
+`envelope`, `transition`, `spawn`, `ambient`, `window`; structural kinds `branch`, `arm`,
+`clock`).  Every machine step's cost plus its released items equals the drop in potential, and
+a final configuration's potential is `0`. -/
 theorem Program.slack_decompositionA (hM : M.WF) (hP : P.WF) {prog : Program K St R}
     {Ψ : SigCtxA K St R} {Γ' : TCtx K} {Δ' W : PCtx K St} {Q : R → R → R} {F : R → R}
     (ht : prog.TypedA P M Ψ Γ' Δ' W Q F) {K₀ q : R} {c : Config K St R}
     (h : prog.MRun P M K₀ c q) :
-    ∃ (L : List (ASlack R)) (r : R), Q K₀ 0 = q + ASlack.total L + r ∧
+    ∃ L : List (ASlack R), Q K₀ 0 = q + ASlack.total L ∧
       ∀ i ∈ L, ∃ c₁ c₂ q₀ q₁, Steps P M prog.fctx 0 (prog.initConfig K₀) q₀ c₁ ∧
         MStep P M prog.fctx 0 c₁ q₁ c₂ ∧ i.Spec P M Ψ 0 c₁ c₂ := by
   have hΨd := Program.sigsDerivedA ht
-  obtain ⟨Φ', L, _, hL, hle⟩ := CfgTyped.stepsS hM (Program.sigsMonoA hM ht) hP hΨd.closed hΨd
+  obtain ⟨Φ', L, hc', hL, hle⟩ := CfgTyped.stepsS hM (Program.sigsMonoA hM ht) hP hΨd.closed hΨd
     h.1 (Program.initCfgTyped ht K₀)
-  rw [add_zero] at hle
-  obtain ⟨r, hr⟩ := exists_add_of_le (le_trans le_self_add hle)
-  exact ⟨L, r, hr, hL⟩
+  rw [hc'.final_zero h.2, add_zero, add_zero] at hle
+  exact ⟨L, hle.symm, hL⟩

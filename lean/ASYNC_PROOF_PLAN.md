@@ -31,7 +31,8 @@ Summed along a run, cost `≤ Φ(initial) = Q K₀ 0`.
 | — | residual itemized: spawn charge, waiting-tick charge, join / timeout clock, await-start rounding, callee continuations | done |
 | — | B4 Parts 1–2: local necessity, the await gap (`Program.await_gap`), rounding (`AsyncNecessity.lean`) | done |
 | — | B4 Part 3: never-schedule run attains the waiting charge up to a tick (`Steps.never_schedule`) | done |
-| — | exact equality `r = 0`; tighter `max` form of T-Await | later |
+| — | exact decomposition `Q K₀ 0 = q + Σ items` (every step lemma an equality) | done |
+| — | T-Await: `max` form dropped (unsound); overlap-based tightening (duration lower bound) not planned — see `TODO.md` | — |
 
 Everything listed as done builds with no `sorry`; `Program.MRun.soundnessA` and `Program.typeSafetyA` depend only on
 `propext`, `Classical.choice`, `Quot.sound`.
@@ -150,12 +151,6 @@ outer ambient `0`).
 
 ## Open items
 
-* **Future refactor (more principled than links):** drop `PCtx.Widen` links and retype the rest
-  of the program from a branch's own output with a *narrowing lemma* (typed from `Δ'`,
-  `Δ ⊑ Δ'` closed ⇒ typed from `Δ` with smaller outputs, windows and summaries).  The
-  configuration would then be typed by an actual derivation chain, and the potential would be
-  tighter after branches.  Costs: a mutual lemma over every `TypedA` / `ArmsTypedA` rule;
-  `async` narrows `W_p`, hence the thread's `V` (breaks `SameIds`, changes `ThreadOK`); closure of
-  the narrowed context remains a side condition.
+* **Narrowing refactor — not planned** (reconsidered 2026-11-10): replacing `PCtx.Widen` links by a narrowing lemma would change no result, only move state slack into `branch` items; see `TODO.md`.
 * **Done:** embedding `Typed → TypedA` (`Embed.lean`). **Later:** slack for async (via "an async is a closure called
   at the spawn, at the window ambient").
