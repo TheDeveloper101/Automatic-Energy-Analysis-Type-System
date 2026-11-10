@@ -86,7 +86,7 @@ theorem CfgTyped.stepsS {Ψ : SigCtxA K St R} (hM : M.WF)
     exact ⟨Φ, [], hc, fun _ h => (by cases h), by simp [ASlack.total]⟩
   | @step c₀ q₀ c₁ q' c₂ hs _ ih =>
     intro Φ hc
-    obtain ⟨Φ₁, L₁, h₁, hL₁, hle₁⟩ := hc.mstepS hM hΨ hP hΨc hΨd hs
+    obtain ⟨Φ₁, L₁, h₁, hL₁, hle₁, _⟩ := hc.mstepS hM hΨ hP hΨc hΨd hs
     obtain ⟨Φ', L₂, h', hL₂, hle'⟩ := ih h₁
     refine ⟨Φ', L₁ ++ L₂, h', ?_, ?_⟩
     · intro i hi

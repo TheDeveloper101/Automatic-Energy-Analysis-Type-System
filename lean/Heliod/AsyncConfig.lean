@@ -4475,6 +4475,72 @@ theorem CfgTyped.timeout_shape {Am : Multiset (K × St)} {c : Config K St R} {Φ
       rw [← hsegs.2.1] at h₂
       exact (h₂ _ List.mem_cons_self _ List.mem_cons_self).elim
 
+/-! ### Waiting frames across a step -/
+
+/-- `main` is waiting: its running activation has a waiting frame at its head (the only place
+typed configurations have one). -/
+def Config.Waits (c : Config K St R) : Prop :=
+  ∃ ss σ H T tid id rem fb rest r as, c.segs = ss ++
+    [⟨none, ⟨σ, H, T, .awaitW tid id rem fb :: rest, r⟩ :: as⟩]
+
+/-- Draining timers keeps `main` waiting (the frame's budget only goes down). -/
+theorem Config.Waits.drain {c : Config K St R} (d : R) (h : c.Waits) : (c.drain d).Waits := by
+  obtain ⟨ss, σ, H, T, tid, id, rem, fb, rest, r, as, hs⟩ := h
+  refine ⟨ss.map fun s =>
+      { s with acts := s.acts.map fun a => { a with ctl := a.ctl.map (Ctl.drain d) } },
+    σ, H, T, tid, id, rem - d, fb, rest.map (Ctl.drain d), r,
+    as.map fun a => { a with ctl := a.ctl.map (Ctl.drain d) }, ?_⟩
+  simp only [Config.drain, hs, List.map_append, List.map_cons, List.map_nil]
+  rfl
+
+/-- A step that changes only the top segment, which is not `main` waiting, keeps `main`
+waiting. -/
+theorem Config.Waits.top {c c₁ : Config K St R} {x y : Seg St R} {ss : List (Seg St R)}
+    (h : c.Waits) (hc : c.segs = x :: ss) (hc₁ : c₁.segs = y :: ss)
+    (hx : ∀ σ H T tid id rem fb rest r as,
+      x ≠ ⟨none, ⟨σ, H, T, .awaitW tid id rem fb :: rest, r⟩ :: as⟩) : c₁.Waits := by
+  obtain ⟨ss', σ, H, T, tid, id, rem, fb, rest, r, as, hs⟩ := h
+  rw [hc] at hs
+  cases ss' with
+  | nil =>
+    simp only [List.nil_append, List.cons.injEq] at hs
+    exact (hx _ _ _ _ _ _ _ _ _ _ hs.1).elim
+  | cons s₀ ss'' =>
+    simp only [List.cons_append, List.cons.injEq] at hs
+    obtain ⟨-, rfl⟩ := hs
+    exact ⟨y :: ss'', σ, H, T, tid, id, rem, fb, rest, r, as, by rw [hc₁]; rfl⟩
+
+/-- Scheduling a thread on top keeps `main` waiting. -/
+theorem Config.Waits.cons {c c₁ : Config K St R} {y : Seg St R} (h : c.Waits)
+    (hc₁ : c₁.segs = y :: c.segs) : c₁.Waits := by
+  obtain ⟨ss, σ, H, T, tid, id, rem, fb, rest, r, as, hs⟩ := h
+  exact ⟨y :: ss, σ, H, T, tid, id, rem, fb, rest, r, as, by rw [hc₁, hs]; rfl⟩
+
+/-- Removing a thread's segment from the top keeps `main` waiting. -/
+theorem Config.Waits.tail {c c₁ : Config K St R} {x : Seg St R} {ss : List (Seg St R)}
+    (h : c.Waits) (hc : c.segs = x :: ss) (hc₁ : c₁.segs = ss) (hx : x.owner ≠ none) :
+    c₁.Waits := by
+  obtain ⟨ss', σ, H, T, tid, id, rem, fb, rest, r, as, hs⟩ := h
+  rw [hc] at hs
+  cases ss' with
+  | nil =>
+    simp only [List.nil_append, List.cons.injEq] at hs
+    exact (hx (by rw [hs.1])).elim
+  | cons s₀ ss'' =>
+    simp only [List.cons_append, List.cons.injEq] at hs
+    obtain ⟨-, rfl⟩ := hs
+    exact ⟨ss'', σ, H, T, tid, id, rem, fb, rest, r, as, hc₁⟩
+
+/-- A segment whose running activation's next entry is a command is not `main` waiting. -/
+theorem TopOK.not_waiting {o : Option ThreadId} {as : List (Act St R)} (h : TopOK as) :
+    ∀ σ H T tid id rem fb rest r as',
+      (⟨o, as⟩ : Seg St R) ≠ ⟨none, ⟨σ, H, T, .awaitW tid id rem fb :: rest, r⟩ :: as'⟩ := by
+  intro σ H T tid id rem fb rest r as' he
+  simp only [Seg.mk.injEq] at he
+  obtain ⟨-, rfl⟩ := he
+  obtain ⟨c, hc, -⟩ := h _ rfl _ rfl
+  cases hc
+
 /-- A slack item released by a step of the running activation `a` (local command, call or
 return) has its spec. -/
 theorem ASlack.spec_local {Am : Multiset (K × St)} {c c' : Config K St R} {o : Option ThreadId}
@@ -4526,16 +4592,22 @@ theorem CfgTyped.mstepS (hM : M.WF)
     {Am : Multiset (K × St)} {c : Config K St R} {Φ : R} (hc : CfgTyped P M Ψ Am c Φ)
     {q : R} {c' : Config K St R} (h : MStep P M Ψd Am c q c') :
     ∃ (Φ' : R) (L : List (ASlack R)), CfgTyped P M Ψ Am c' Φ' ∧
-      (∀ i ∈ L, i.Spec P M Ψ Am c c') ∧ q + ASlack.total L + Φ' ≤ Φ := by
+      (∀ i ∈ L, i.Spec P M Ψ Am c c') ∧ q + ASlack.total L + Φ' ≤ Φ ∧
+      (c.Waits → ¬ c'.Waits → ∃ i ∈ L, i.kind = .fallback ∨ i.kind = .abandon) := by
   obtain ⟨tick, c₁, hstep, rfl⟩ := h
   have fin : ∀ {Φ₁ : R} {L₁ L₂ : List (ASlack R)}, CfgTyped P M Ψ Am c₁ Φ₁ →
       (∀ i ∈ L₁, ∀ c'', i.Spec P M Ψ Am c c'') →
       (∀ i ∈ L₂, HeadSpec P M Ψ Am (if tick then c₁.drain c.K else c₁) i ∧ i.kind = .clock) →
       q + ASlack.total L₁ + ASlack.total L₂ + Φ₁ ≤ Φ →
+      (c.Waits → ¬ c₁.Waits → ∃ i ∈ L₁, i.kind = .fallback ∨ i.kind = .abandon) →
       ∃ (Φ' : R) (L : List (ASlack R)), CfgTyped P M Ψ Am (if tick then c₁.drain c.K else c₁) Φ' ∧
         (∀ i ∈ L, i.Spec P M Ψ Am c (if tick then c₁.drain c.K else c₁)) ∧
-        q + ASlack.total L + Φ' ≤ Φ := by
-    intro Φ₁ L₁ L₂ h₁ hL₁ hL₂ hle
+        q + ASlack.total L + Φ' ≤ Φ ∧ (c.Waits → ¬ (if tick then c₁.drain c.K else c₁).Waits → ∃ i ∈ L, i.kind = .fallback ∨ i.kind = .abandon) := by
+    intro Φ₁ L₁ L₂ h₁ hL₁ hL₂ hle hres
+    have hres₀ : c.Waits → ¬ c₁.Waits → ∃ i ∈ L₁ ++ L₂, i.kind = .fallback ∨ i.kind = .abandon :=
+      fun hw hn => by
+        obtain ⟨i, hi, hk⟩ := hres hw hn
+        exact ⟨i, List.mem_append_left _ hi, hk⟩
     have hL₀ : ∀ i ∈ L₁ ++ L₂, i.Spec P M Ψ Am c (if tick then c₁.drain c.K else c₁) := by
       intro i hi
       rcases List.mem_append.1 hi with hi | hi
@@ -4543,15 +4615,18 @@ theorem CfgTyped.mstepS (hM : M.WF)
       · exact ASlack.spec_post (hL₂ i hi).1 (hL₂ i hi).2
     have hle₀ : q + ASlack.total (L₁ ++ L₂) + Φ₁ ≤ Φ := by
       rw [ASlack.total_append, ← add_assoc]; exact hle
-    generalize L₁ ++ L₂ = L₀ at hL₀ hle₀
+    generalize L₁ ++ L₂ = L₀ at hL₀ hle₀ hres₀
     cases tick
-    · exact ⟨Φ₁, L₀, h₁, hL₀, hle₀⟩
+    · exact ⟨Φ₁, L₀, h₁, hL₀, hle₀, hres₀⟩
     · simp only [↓reduceIte] at hL₀ ⊢
       obtain ⟨Φ', x, h', hx, Lr, hLr, hle'⟩ := h₁.drain c.K
       have hr : ∀ i ∈ Lr, i.Spec P M Ψ Am c (c₁.drain c.K) := fun i hi =>
         ASlack.spec_post (hLr i hi).1 (hLr i hi).2
       rcases hx with rfl | ⟨u, w, rfl, hw⟩
-      · refine ⟨Φ', L₀ ++ Lr, h', fun i hi => ?_, ?_⟩
+      · refine ⟨Φ', L₀ ++ Lr, h', fun i hi => ?_, ?_, fun hwt hnt => ?_⟩
+        rotate_right
+        · obtain ⟨i, hi, hk⟩ := hres₀ hwt (fun h => hnt (h.drain _))
+          exact ⟨i, List.mem_append_left _ hi, hk⟩
         · rcases List.mem_append.1 hi with hi | hi
           · exact hL₀ i hi
           · exact hr i hi
@@ -4561,7 +4636,10 @@ theorem CfgTyped.mstepS (hM : M.WF)
               = q + ASlack.total L₀ + (ASlack.total Lr + Φ') := by ring
             _ ≤ q + ASlack.total L₀ + Φ₁ := add_le_add le_rfl hle'
             _ ≤ Φ := hle₀
-      · refine ⟨Φ', L₀ ++ ([⟨.wait, u * w⟩] ++ Lr), h', fun i hi => ?_, ?_⟩
+      · refine ⟨Φ', L₀ ++ ([⟨.wait, u * w⟩] ++ Lr), h', fun i hi => ?_, ?_, fun hwt hnt => ?_⟩
+        rotate_right
+        · obtain ⟨i, hi, hk⟩ := hres₀ hwt (fun h => hnt (h.drain _))
+          exact ⟨i, List.mem_append_left _ hi, hk⟩
         · rcases List.mem_append.1 hi with hi | hi
           · exact hL₀ i hi
           · rcases List.mem_append.1 hi with hi | hi
@@ -4573,23 +4651,24 @@ theorem CfgTyped.mstepS (hM : M.WF)
               = q + ASlack.total L₀ + (u * w + ASlack.total Lr + Φ') := by ring
             _ ≤ q + ASlack.total L₀ + Φ₁ := add_le_add le_rfl hle'
             _ ≤ Φ := hle₀
-  have nil : ∀ {Φ₁ : R}, CfgTyped P M Ψ Am c₁ Φ₁ → q + Φ₁ ≤ Φ →
+  have nil : ∀ {Φ₁ : R}, CfgTyped P M Ψ Am c₁ Φ₁ → q + Φ₁ ≤ Φ → (c.Waits → c₁.Waits) →
       ∃ (Φ' : R) (L : List (ASlack R)), CfgTyped P M Ψ Am (if tick then c₁.drain c.K else c₁) Φ' ∧
         (∀ i ∈ L, i.Spec P M Ψ Am c (if tick then c₁.drain c.K else c₁)) ∧
-        q + ASlack.total L + Φ' ≤ Φ := fun h₁ hle =>
+        q + ASlack.total L + Φ' ≤ Φ ∧ (c.Waits → ¬ (if tick then c₁.drain c.K else c₁).Waits → ∃ i ∈ L, i.kind = .fallback ∨ i.kind = .abandon) := fun h₁ hle hw =>
     fin (L₁ := []) (L₂ := []) h₁ (fun _ h => by cases h) (fun _ h => by cases h)
-      (by simpa [ASlack.total] using hle)
+      (by simpa [ASlack.total] using hle) (fun h hn => (hn (hw h)).elim)
   have act : ∀ {o as ss pool D Kc as' D' K'},
       c = ⟨⟨o, as⟩ :: ss, pool, D, Kc⟩ → TopOK as →
       ActStep M Ψd Am as D Kc q tick as' D' K' → c₁ = ⟨⟨o, as'⟩ :: ss, pool, D', K'⟩ →
       ∃ (Φ' : R) (L : List (ASlack R)), CfgTyped P M Ψ Am (if tick then c₁.drain c.K else c₁) Φ' ∧
         (∀ i ∈ L, i.Spec P M Ψ Am c (if tick then c₁.drain c.K else c₁)) ∧
-        q + ASlack.total L + Φ' ≤ Φ := by
+        q + ASlack.total L + Φ' ≤ Φ ∧ (c.Waits → ¬ (if tick then c₁.drain c.K else c₁).Waits → ∃ i ∈ L, i.kind = .fallback ∨ i.kind = .abandon) := by
     intro o as ss pool D Kc as' D' K' hcc htop hs hc₁
     subst hcc hc₁
     obtain ⟨Φ₁, L, h₁, hL, hle⟩ := hc.step_act hM hΨ hP hΨc hΨd rfl htop hs
     refine fin (L₁ := L) (L₂ := []) h₁ (fun i hi c'' => ?_) (fun _ h => by cases h)
       (by simpa [ASlack.total] using hle)
+      (fun hw hn => (hn (hw.top rfl rfl htop.not_waiting)).elim)
     obtain ⟨a, tl, rfl, hsp⟩ := hL i hi
     exact ASlack.spec_local (ss₁ := []) rfl hsp
   cases hstep with
@@ -4612,6 +4691,7 @@ theorem CfgTyped.mstepS (hM : M.WF)
       obtain ⟨Φ₁, L, h₁, hL, hna, Lr, hLr, hle⟩ := hc.async hP rfl hH hD hfresh
       refine fin (L₁ := L) (L₂ := Lr) h₁ (fun i hi _ => ASlack.spec_local (ss₁ := []) rfl (hL i hi))
         (fun i hi => ⟨?_, (hLr i hi).2⟩) hle
+        (fun hw hn => (hn (hw.top rfl rfl (fun _ _ _ _ _ _ _ _ _ _ h => by simp at h))).elim)
       simp only [↓reduceIte]
       rw [Config.drain_eq_self (c := ⟨[⟨none, ⟨σ, H, Function.update T tid (some id), ctl, r⟩ :: as⟩],
         _, _, _⟩) hna]
@@ -4625,7 +4705,8 @@ theorem CfgTyped.mstepS (hM : M.WF)
       obtain rfl := hc.main_alone rfl
       obtain ⟨Φ₁, x, h₁, ⟨u, w, rfl, hw⟩, Lr, hLr, hle⟩ := hc.awaitStart rfl hT
       refine ⟨Φ₁, [⟨.wait, u * w⟩] ++ Lr, h₁, ?_, by
-        rw [ASlack.total_append, ASlack.total_single, zero_add]; exact hle⟩
+        rw [ASlack.total_append, ASlack.total_single, zero_add]; exact hle,
+        fun hw hn => (hn (hw.top rfl rfl (fun _ _ _ _ _ _ _ _ _ _ h => by simp at h))).elim⟩
       intro i hi
       rcases List.mem_append.1 hi with hi | hi
       · rw [List.mem_singleton] at hi; subst hi
@@ -4641,6 +4722,7 @@ theorem CfgTyped.mstepS (hM : M.WF)
       obtain ⟨Φ₁, x₁, x₂, x₃, h₁, ⟨u, w, rfl, hw⟩, hfs, hck, Lr, hLr, hle⟩ :=
         hc.awaitDone hM hΨ rfl hpe hdone
       refine fin (L₁ := [⟨.wait, u * w⟩, ⟨.fallback, x₂⟩, ⟨.clock, x₃⟩]) (L₂ := Lr) h₁ ?_ hLr ?_
+        (fun _ _ => ⟨⟨.fallback, x₂⟩, by simp, Or.inl rfl⟩)
       · intro i hi c''
         simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
         rcases hi with rfl | rfl | rfl
@@ -4657,7 +4739,8 @@ theorem CfgTyped.mstepS (hM : M.WF)
       obtain rfl := hc.main_alone rfl
       obtain ⟨Φ₁, x, L, h₁, ⟨u, w, rfl, hw⟩, hL, Lr, hLr, hle⟩ := hc.awaitWait rfl hpos
       refine ⟨Φ₁, L ++ ([⟨.wait, u * w⟩] ++ Lr), h₁, ?_, by
-        simpa only [ASlack.total_append, ASlack.total_single, add_assoc] using hle⟩
+        simpa only [ASlack.total_append, ASlack.total_single, add_assoc] using hle,
+        fun hw hn => (hn (hw.drain _)).elim⟩
       intro i hi
       rcases List.mem_append.1 hi with hi | hi
       · exact ASlack.spec_local (ss₁ := []) rfl (hL i hi)
@@ -4676,6 +4759,7 @@ theorem CfgTyped.mstepS (hM : M.WF)
         hc.timeout (tsegs₀ := []) hM hΨ rfl (fun _ h => by simp at h)
       refine fin (L₁ := [⟨.abandon, x⟩, ⟨.wait, u * w⟩, ⟨.clock, x₃⟩]) (L₂ := Lr) h₁ ?_ hLr
         (by simpa [ASlack.total, add_assoc] using hle)
+        (fun _ _ => ⟨⟨.abandon, x⟩, by simp, Or.inr rfl⟩)
       intro i hi _
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
       rcases hi with rfl | rfl | rfl
@@ -4692,6 +4776,7 @@ theorem CfgTyped.mstepS (hM : M.WF)
         (fun sg h => by simp only [List.mem_singleton] at h; subst h; rfl)
     refine fin (L₁ := [⟨.abandon, x⟩, ⟨.wait, u * w⟩, ⟨.clock, x₃⟩]) (L₂ := Lr) h₁ ?_ hLr
       (by simpa [ASlack.total, add_assoc] using hle)
+      (fun _ _ => ⟨⟨.abandon, x⟩, by simp, Or.inr rfl⟩)
     intro i hi _
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
     rcases hi with rfl | rfl | rfl
@@ -4700,13 +4785,13 @@ theorem CfgTyped.mstepS (hM : M.WF)
     · exact ASlack.spec_local (ss₁ := [⟨some id, acts⟩]) rfl hck
   | preempt hpe hpend =>
     obtain ⟨Φ₁, h₁, hle⟩ := hc.preempt hpe hpend
-    exact nil h₁ (by rw [zero_add]; exact hle)
+    exact nil h₁ (by rw [zero_add]; exact hle) (fun hw => hw.cons rfl)
   | threadDone hpe =>
     obtain ⟨Φ₁, h₁, hle⟩ := hc.threadDone rfl hpe
-    exact nil h₁ (by rw [zero_add]; exact hle)
+    exact nil h₁ (by rw [zero_add]; exact hle) (fun hw => hw.tail rfl rfl (by simp))
   | hw hpe hnd hD hs' =>
     obtain ⟨Φ₁, h₁, hle⟩ := hc.hw hpe hnd hD hs'
-    exact nil h₁ (by rw [zero_add]; exact hle)
+    exact nil h₁ (by rw [zero_add]; exact hle) (fun hw => hw)
 
 /-- **3c: every machine step pays for itself** (`CfgTyped.mstepS` without the slack items). -/
 theorem CfgTyped.mstep (hM : M.WF)
@@ -4715,7 +4800,7 @@ theorem CfgTyped.mstep (hM : M.WF)
     {Am : Multiset (K × St)} {c : Config K St R} {Φ : R} (hc : CfgTyped P M Ψ Am c Φ)
     {q : R} {c' : Config K St R} (h : MStep P M Ψd Am c q c') :
     ∃ Φ', CfgTyped P M Ψ Am c' Φ' ∧ q + Φ' ≤ Φ := by
-  obtain ⟨Φ', L, h', _, hle⟩ := hc.mstepS hM hΨ hP hΨc hΨd h
+  obtain ⟨Φ', L, h', _, hle, _⟩ := hc.mstepS hM hΨ hP hΨc hΨd h
   exact ⟨Φ', h', le_trans (add_le_add le_self_add le_rfl) hle⟩
 
 /-- **Runs of a typed configuration cost at most its potential** (3c iterated): along any run,

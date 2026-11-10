@@ -29,7 +29,9 @@ Summed along a run, cost `≤ Φ(initial) = Q K₀ 0`.
 | — | slack (B1 + B2): `Program.slack_decompositionA` (`AsyncSlack.lean`) — wait / fallback / abandon items | done |
 | — | slack (B3): per-handle charge items and branch / arm / clock items from local, call and return steps | done |
 | — | residual itemized: spawn charge, waiting-tick charge, join / timeout clock, await-start rounding, callee continuations | done |
-| — | slack (B4, schedule necessity); exact equality `r = 0` | later |
+| — | B4 Parts 1–2: local necessity, the await gap (`Program.await_gap`), rounding (`AsyncNecessity.lean`) | done |
+| — | B4 Part 3: never-schedule run attains the waiting charge up to a tick (`Steps.never_schedule`) | done |
+| — | exact equality `r = 0`; tighter `max` form of T-Await | later |
 
 Everything listed as done builds with no `sorry`; `Program.MRun.soundnessA` and `Program.typeSafetyA` depend only on
 `propext`, `Classical.choice`, `Quot.sound`.
