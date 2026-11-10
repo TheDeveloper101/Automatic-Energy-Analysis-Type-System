@@ -1,4 +1,4 @@
-# Async soundness: design and status (updated 2026-11-09)
+# Async soundness: design and status (updated 2026-11-10)
 
 Goal: `Program.MRun.soundnessA` — a program well typed under `TypedA`, run to completion on
 the machine from clock `K₀`, costs at most `Q K₀ 0`, for every schedule and every sequence of
@@ -23,10 +23,13 @@ Summed along a run, cost `≤ Φ(initial) = Q K₀ 0`.
 | 3b | configuration typing `CfgTyped` (`AsyncConfig.lean`) | done |
 | 3c | every machine step pays: `CfgTyped.mstep`, runs: `CfgTyped.steps` | done |
 | 3d | initial configuration typed; `Program.MRun.soundnessA` (`AsyncProgram.lean`) | done |
-| — | lift the staging restriction | **next** |
-| — | type safety, accounting and slack for async | later |
+| — | lift the staging restriction (calls while threads are pending) | done |
+| — | machine type safety: `CfgTyped.progress`, `Program.typeSafetyA` (`AsyncSafety.lean`) | done |
+| — | accounting (A) on the machine: `Steps.accounting` (`AsyncAccounting.lean`) | done |
+| — | slack (B) for async | later (decisions pending, `TODO.md`) |
 
-Everything listed as done builds with no `sorry`, under the staging restriction below.
+Everything listed as done builds with no `sorry`; `Program.MRun.soundnessA` and `Program.typeSafetyA` depend only on
+`propext`, `Classical.choice`, `Quot.sound`.
 
 ## Rule decisions in force (see `TODO.md` for the full rationale)
 
@@ -36,9 +39,10 @@ Everything listed as done builds with no `sorry`, under the staging restriction 
 * **Signatures closed under hardware steps (option A)**: `FunDeclTypedA` requires `sIn`, `sOut`
   closed under `HWReach`.
 * **No nested threads (permanent)**: T-AsyncFun requires `fz = false`.
-* **STAGING RESTRICTION (temporary)**: T-Call requires `Θ.IsEmpty`.  Consequence used
-  throughout: every pending or running thread belongs to the running activation of `main`'s
-  segment.
+* **Calls while threads are pending** (the staging restriction `Θ.IsEmpty` on T-Call was lifted
+  2026-11-09): the callee must have a stable clock, so it is frozen and cannot spawn.  At most
+  one activation of `main`'s stack has pending threads — the *spawner* — possibly suspended
+  under a chain of frozen callees.
 * **Count-down timers** in the machine (as in the paper): a waiting frame `awaitW tid id rem fb`
   holds the remaining budget; drain lowers it by `K` (truncated); waiting continues while
   `0 < rem`; timeout at `rem ≤ 0`.
@@ -53,11 +57,17 @@ Everything listed as done builds with no `sorry`, under the staging restriction 
     which must be closed under hardware steps when `cl` (thread stacks).
   * **Ceiling `C`**: a downward-closed predicate every visited context (and the final context)
     satisfies.  Proof invariant only; no effect on summaries.
-* **`StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb`** — a typed stack of activations (one segment).
+* **Thread view `TView`** (`Θ Δ b H T` of the spawner) and **`TView.OK`** (a suspended spawner's
+  agreement with the store under its view with the passed handle at `visit`, plus window shape,
+  cover, captured handles, backward window bound).
+* **`StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs`** — a typed stack of activations (one
+  segment), with its thread view `tv` and suspension ceiling `Vs`.
   * Indices: potential `Φ`, exit-clock bound `X`, the running activation's view `Θ Δ b`, and
     the bottom layer's ambient bound `bb`.
   * `base` (bottom activation) and `push` (a callee over a continuation clause for its caller,
-    like a closure).
+    like a closure).  A callee inherits the thread view: its caller's, or (if the caller is the
+    spawner) the caller's suspended view, whose agreement the callee layer keeps (`TView.OK`)
+    while the callee and its own callees keep the passed device within `visit` (ceiling `Vs`).
   * `E : Option DevEnv`: `none` for `main`; for a thread, its device, envelope `V` and exit set
     `sOut`.  Each layer's ceiling is `DevEnv.Ceil E H`; the bottom layer's final context
     satisfies `DevEnv.Exit E H`.
@@ -65,7 +75,8 @@ Everything listed as done builds with no `sorry`, under the staging restriction 
     under hardware steps (thread stacks), captured handles (`ThreadCtx.CapOK`), what the layer
     sees (`DevEnv.Sees`: thread layers see only their device, through a live handle), frozen
     (thread layers).
-* **`ThreadOK`** — one pending thread of `main`'s running activation, by pool status:
+* **`ThreadOK`** — one pending thread of the spawner (keyed on the thread view's `b H T`), by
+  pool status:
   * pending: the body typed (frozen) from a hardware-closed start set containing the device's
     state, in the closure memory; contributes `Q_a K (b + amb)`;
   * running: exactly one segment, a `StackOK` under the envelope with bottom bound `b + amb`;
@@ -87,7 +98,8 @@ Everything listed as done builds with no `sorry`, under the staging restriction 
 | a thread's device stays in its envelope | ceiling `DevEnv.Ceil`, `StackOK.dev_in_env` |
 | a thread's ambient fits `b + amb` | `ActOK.thread_amb` (main's agreement + window cover + bound) |
 | foreign device moves keep thread stacks typed | `StackOK.foreign` |
-| captured device moves keep `main` typed | `StackOK.move` |
+| captured device moves keep `main` typed (spawner running or suspended) | `StackOK.move_tv` |
+| at an `await` or `async`, the running activation is the spawner (or nothing is pending) | `StackOK.await_tv`, `StackOK.async_tv` |
 
 ## Step cases (`CfgTyped.mstep`)
 
@@ -118,13 +130,21 @@ outer ambient `0`).
 4. **`Program.MRun.soundnessA`**: `CfgTyped.steps` along the run; potentials are `≥ 0`, so the
    cost is at most `Q K₀ 0`.
 
+## Type safety (done, `AsyncSafety.lean`)
+
+* `progress_head` / `StackOK.progress`: a typed stack is finished, steps its running
+  activation (values from `HasTy.eval`, devices from `PeriphsOK.live` + `Corr.lookup`, `match`
+  arms from `Arms.find?_of_mem`, callees from `SigsDerivedA`, returns from the return type), or
+  is at a spawn / `await` / waiting frame.
+* `CfgTyped.fresh`: an id above every pending thread's is free in the pool.
+* `CfgTyped.progress`: a thread on top steps or finishes (`threadDone`); spawns, `await`s and
+  waiting frames cannot occur in threads.  `main` on top: spawn (device + fresh id),
+  `awaitStart` (the thread has an id by `await_tv` + `ThreadOK`), waiting frame (pending:
+  wait or time out by the budget; done: join; running impossible with no thread segments).
+* `Program.typeSafetyA`: preservation (`CfgTyped.steps`) + progress.
+
 ## Open items
 
-* **Lift the staging restriction.**  Calls while a thread is pending bring back the case of a
-  spawner suspended inside a call: its parameter's device is in the callee's visited states,
-  hence in `visit`, which the window observes at the call.  `StackOK.push` currently requires
-  the caller's view to have no pending threads, and `StackOK.step` uses "no threads ⇒ local
-  step" in several places; both need generalizing.  Some per-layer invariants may simplify then.
 * **Future refactor (more principled than links):** drop `PCtx.Widen` links and retype the rest
   of the program from a branch's own output with a *narrowing lemma* (typed from `Δ'`,
   `Δ ⊑ Δ'` closed ⇒ typed from `Δ` with smaller outputs, windows and summaries).  The
@@ -132,6 +152,5 @@ outer ambient `0`).
   tighter after branches.  Costs: a mutual lemma over every `TypedA` / `ArmsTypedA` rule;
   `async` narrows `W_p`, hence the thread's `V` (breaks `SameIds`, changes `ThreadOK`); closure of
   the narrowed context remains a side condition.
-* **Later:** type safety for the machine (every non-final typed configuration can step);
-  embedding `Typed → TypedA`; accounting and slack for async (via "an async is a closure called
+* **Later:** embedding `Typed → TypedA`; slack for async (via "an async is a closure called
   at the spawn, at the window ambient").

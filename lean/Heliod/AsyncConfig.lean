@@ -6,8 +6,9 @@ import Heliod.Adequacy
 
 The potential argument (`ASYNC_PROOF_PLAN.md`).  Main results: `CfgTyped.mstep` (a typed
 configuration steps, timers drained, to a typed configuration whose potential plus the step's
-cost is at most the old potential) and `CfgTyped.steps` (whole runs), under the STAGING
-RESTRICTION on T-Call.  Building blocks:
+cost is at most the old potential) and `CfgTyped.steps` (whole runs).  Calls are allowed while
+threads are pending: the spawner may be suspended under frozen callees (`TView`, `StackOK`).
+Building blocks:
 
 * **Join algebra.**  `PCtx.join` is commutative and associative (`PCtx.join_comm`,
   `PCtx.join_assoc`).
@@ -370,7 +371,7 @@ theorem TypedA.capOK {fz Γ Δ Θ c Γ' Δ' Θ' W Q F} :
   | .clock _ _ _, h => h
   | .seq h₁ h₂, h => h₂.capOK (h₁.capOK h)
   | .matchSt _ hnc _ ha, h => ha.capOK h hnc
-  | .call _ _ _ _ _ hnc _ _, h => ((h.set hnc _ _).observe _).observe _
+  | .call _ _ _ _ _ hnc _, h => ((h.set hnc _ _).observe _).observe _
   | .async _ hnc _ _ _ _ _ _ _ _, h => h.spawn hnc _ _ _ rfl rfl rfl
   | .await (th := th) (tid := tid) hth _ _ hfb hs _ _, h =>
       have hE := h.erase tid
@@ -1033,291 +1034,6 @@ theorem DevEnv.Sees.callee {E : Option (DevEnv St)} {H : Var → Option Dev} {Δ
     rw [← hx]; exact hd
   · simp [hxq] at hx
 
-/-! ### Stacks of activations -/
-
-/-- Every signature is the one T-FunDecl derives for its declaration (async version of
-`SigsDerived`): calls can step into the callee's body derivation. -/
-def SigsDerivedA (P : Platform K St) (M : CostModel K St R) (Ψd : FCtx K St R)
-    (Ψ : SigCtxA K St R) : Prop :=
-  ∀ g sig, Ψ g = some sig → ∃ d, Ψd g = some d ∧ FunDeclTypedA P M Ψ d sig
-
-omit [DecidableEq K] [CommSemiring R] [LinearOrder R] [OrderBot R] [IsOrderedRing R]
-  [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
-/-- A single handle with a closed set is a closed context (a function body's or thread body's
-starting context, from closed `sIn` / `S₀`). -/
-theorem PCtx.HWClosed.single {x : Var} {k : K} {S : Finset St} (h : P.hwClose k S = S) :
-    PCtx.HWClosed P (Finsupp.single x (PEntry.live k S) : PCtx K St) := by
-  intro y k' S' hy
-  rw [Finsupp.single_apply] at hy
-  split_ifs at hy
-  · cases hy; exact h
-
-omit [DecidableEq K] [CommSemiring R] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R]
-  [CanonicallyOrderedAdd R] [OrderedSub R] in
-/-- No pending threads: trivially closed exit states. -/
-theorem ThreadCtx.SOutClosed.empty :
-    (ThreadCtx.empty : ThreadCtx K St R).SOutClosed P := fun _ _ ht => by cases ht
-
-/-- **A typed stack of activations** (one thread), with its potential `Φ` (remaining typed
-budget) at the current clock and an upper bound `X` on its exit clock.
-
-* `base`: a bottom activation (`main`, or a thread body) whose control stack is typed, ends
-  with no pending threads, and agrees with the store; potential `Q K b`.
-In thread stacks (`E = some _`) every layer's current context is closed under hardware steps
-(as are its pending threads' exit states), so a hardware step on the thread's device stays in it.
-
-* `push`: a called function on top of its caller.  The callee's activation sees only its
-  parameter's device `d`; its control stack is typed and agrees with the store; its return
-  expression is typed and its parameter ends in `sOut`.  The caller is captured in a
-  **continuation clause**: for any return value of the right type, any final state of `d` in
-  `sOut` and any return clock up to the callee's exit-clock bound, the caller (with the value
-  bound and the store updated at `d`) is again a typed stack, with a potential `Φc` and exit
-  bound `Xc` monotone in the return clock.  Potential: the callee's summary, plus its return
-  step at its exit-clock bound, plus the caller's potential at that clock.
-
-The clause refers to the current store updated at `d`; since the callee can only change `d`,
-the clause stays valid as the callee runs. -/
-inductive StackOK (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
-    (Am : Multiset (K × St)) (E : Option (DevEnv St)) : List (Act St R) → RPeriphs K St → R → R → R → ThreadCtx K St R → PCtx K St → R → R →
-    Prop where
-  | base {σ H T ctl fz Γ Δ Θ Γf Δf Θf Q F b D Kc} :
-      CtlTyped P M Ψ (DevEnv.Ceil E H) E.isSome fz Γ Δ Θ ctl Γf Δf Θf Q F → DevEnv.Exit E H Δf → Θf.IsEmpty →
-      ActOK M Γ Δ b σ H D Am →
-      Θ.WinShape Δ.shape → Θ.WinCover Δ → (E.isSome = true → Δ.HWClosed P ∧ Θ.SOutClosed P) →
-      Θ.CapOK Δ →
-      DevEnv.Sees E H Δ →
-      (E.isSome = true → fz = true) →
-      StackOK P M Ψ Am E [⟨σ, H, T, ctl, none⟩] D Kc (Q Kc b) (F Kc) Θ Δ b b
-  | push {σ parg d T ctl e x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut}
-      {Φc Xc : R → R} {Θc : ThreadCtx K St R} {Δc : PCtx K St} {bc bb : R} :
-      CtlTyped P M Ψ (DevEnv.Ceil E (fun y => if y = parg then some d else none)) E.isSome fz Γ Δ Θ ctl
-        Γf Δf Θf Q F → Θf.IsEmpty →
-      ActOK M Γ Δ b σ (fun y => if y = parg then some d else none) D Am →
-      Θ.WinShape Δ.shape → Θ.WinCover Δ → (E.isSome = true → Δ.HWClosed P ∧ Θ.SOutClosed P) →
-      Θ.CapOK Δ →
-      DevEnv.Sees E (fun y => if y = parg then some d else none) Δ →
-      (E.isSome = true → fz = true) →
-      HasTy Γf e τ → Δf parg = .live k S' → S' ⊆ sOut →
-      Monotone Φc → Monotone Xc → Θc.IsEmpty → bb ≤ b →
-      (∀ v s' K', v.ty = τ → s' ∈ sOut → K' ≤ F Kc →
-        StackOK P M Ψ Am E (⟨σc.set x v, Hc, Tc, ctlc, rc⟩ :: rest) (D.set d k s') K'
-          (Φc K') (Xc K') Θc Δc bc bb) →
-      StackOK P M Ψ Am E
-        (⟨σ, fun y => if y = parg then some d else none, T, ctl, some (e, x)⟩ ::
-          ⟨σc, Hc, Tc, ctlc, rc⟩ :: rest) D Kc
-        (Q Kc b + F Kc * (e.cost M + Δf.bg M + b) + Φc (F Kc)) (Xc (F Kc)) Θ Δ b bb
-
-/-- The running activation's next control entry is a local command or a call (or there is
-none).  `async` / `await` are handled in piece 3. -/
-def TopOK (as : List (Act St R)) : Prop :=
-  ∀ a ∈ as.head?, ∀ x ∈ a.ctl.head?,
-    ∃ c, x = .cmd c ∧ (c.Local ∨ ∃ x g e p, c = .call x g e p)
-
-omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R]
-  [IsOrderedRing R] [CanonicallyOrderedAdd R] in
-/-- No pending threads: the empty thread context. -/
-theorem ThreadCtx.empty_isEmpty {R : Type} : (ThreadCtx.empty : ThreadCtx K St R).IsEmpty :=
-  fun _ => rfl
-
-omit [Sub R] [OrderedSub R] in
-/-- **One step of a typed stack pays for itself** (local commands, calls and returns, as
-`ActStep`s — independent of other threads and the pool).  The step's cost plus the new potential is at most the old potential, and the exit
-bound does not grow. -/
-theorem StackOK.step (hM : M.WF)
-    (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono sig.cost sig.clk) {Ψd : FCtx K St R}
-    (hP : P.WF) (hΨc : SigsClosedA P Ψ)
-    (hΨd : SigsDerivedA P M Ψd Ψ) {Am : Multiset (K × St)} {E : Option (DevEnv St)}
-    {as D Kc Φ X Θ Δ b bb} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb) :
-    ∀ {q tick as' D' K'}, TopOK as → ActStep M Ψd Am as D Kc q tick as' D' K' →
-    ∃ Φ' X' Θ' Δ' b', StackOK P M Ψ Am E as' D' K' Φ' X' Θ' Δ' b' bb ∧ q + Φ' ≤ Φ ∧ X' ≤ X ∧
-      Θ.SameIds Θ' ∧ (¬ Θ.IsEmpty → b' = b) ∧ (¬ Θ.IsEmpty → K' = Kc) ∧
-      (¬ Θ.IsEmpty → ∃ a a' tl, as = a :: tl ∧ as' = a' :: tl ∧ a'.H = a.H ∧ a'.T = a.T ∧
-        ∀ t th d, Θ t = some th → a.H th.p = some d → D' d = D d) ∧
-      (E.isSome = true → K' = Kc) := by
-  cases h with
-  | @base σ H T ctl fz Γ Δ Θ Γf Δf Θf Q F b D Kc hct hex hΘf hok hws hwc hclo hcapo hsees hfzo =>
-    intro q tick as' D' K' htop hstep
-    rcases ctl with _ | ⟨x₀, ctlr⟩
-    · cases hstep
-    obtain ⟨c, rfl, hc⟩ := htop _ rfl _ rfl
-    rcases hc with hloc | ⟨x, g, e, p, rfl⟩
-    · -- a local command
-      obtain ⟨σ', ctl', Γ', Δ', Θ', Q', F', rfl, hct', hok', hq, hF, hws', hwc', hsame, hcl', hK', hcap', hsh', hcf, hKfz⟩ :=
-        CtlTyped.step hM hΨ hP hΨc (fun _ _ hle hc => DevEnv.Ceil.mono hc hle) hct hok hws hwc hclo hcapo
-          hloc hstep
-      exact ⟨_, _, _, _, _, .base hct' hex hΘf hok' hws' hwc' hcl' hcap' (hsees.of_shape hsh') hfzo, hq, hF, hsame, fun _ => rfl, hK', fun _ => ⟨_, _, _, rfl, rfl, rfl, rfl, hcf⟩,
-        fun h => hKfz (hfzo h)⟩
-    · -- a call: push the callee; the caller's continuation becomes its clause
-      obtain ⟨Γ₁, Δ₁, Θ₁, W, Q₁, F₁, Γ₁', Δ₁', Θ₁', Q₂, F₂, hc, hcW, hΓ, hΔ, hΘ, hwsr, hwcr, hrest, rfl, rfl⟩ :=
-        hct.cons_inv
-      have hnextc := CtlTyped.next_closed hP hΨc hc hΔ hΘ hclo
-      have hcapc := (hc.capOK hcapo).of_le hΘ hΔ.le
-      have hshc := hΔ.shape_eq.trans hc.shape_eq.1
-      cases hc with
-      | @call _ _ _ _ _ _ _ _ sig S₀ hg hty hx hp hsub₀ _ hfzs hΘe =>
-      cases hstep
-      rename_i dcl v d k s hgd hev hH hD
-      obtain ⟨dcl', hd', hfd⟩ := hΨd g sig hg
-      rw [hgd] at hd'; cases hd'
-      obtain ⟨hargTy, hpKind, hsIn, hretTy, hsOut, ⟨Γb, Δb, Wb, Qb, Fb, S', Sv, hbody, hretT,
-        hΔb, hS', hWbp, hSv, hcost, hclk⟩, hsInC, _⟩ := hfd
-      obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := hok
-      have hSp := hR.lookup hH hD
-      obtain ⟨rfl, hs⟩ := hS.at hSp hp
-      obtain ⟨v', hev', hvty⟩ := HasTy.eval hσ hty
-      rw [hev] at hev'; cases hev'
-      have hF2 := hrest.mono hM hΨ
-      have hCb := DevEnv.Ceil.callee hcW hp hH hWbp hSv
-      have hΘc₀ : Θ₁'.IsEmpty := ThreadCtx.IsEmpty.of_le ((hΘe.observe _).observe _) hΘ
-      have hqc : Kc * (e.cost M + D.bg M + ambBg M Am) ≤ Kc * (e.cost M + Δ.bg M + b) := by
-        refine mul_le_mul_left'' ?_
-        rw [add_assoc, add_assoc]
-        exact add_le_add le_rfl (ActOK.bg_le ⟨hσ, S, Ae, hC, hR, hS, hb⟩)
-      have hokb : ActOK M (TCtx.empty.bind dcl.arg dcl.argTy)
-          (Finsupp.single dcl.parg (.live dcl.pKind dcl.sIn)) (b + (Δ.erase p).bg M)
-          (Mem.empty.set dcl.arg v) (fun y => if y = dcl.parg then some d else none) D Am := by
-        refine ⟨MemOK.arg (hargTy ▸ hvty), Finsupp.single dcl.parg (.at sig.pKind s),
-          Ae + (S.erase p).entries, hC.call hSp hD dcl.parg, Rev.call hD, ?_, ?_⟩
-        · rw [← hpKind]; exact PeriphsOK.single (hsIn ▸ hsub₀ hs)
-        · rw [ambBg_add_entries]; exact add_le_add hb (hS.erase p).bg_le
-      refine ⟨_, _, _, _, _,
-        .push (Φc := fun K' => Q₂ K' b) (Xc := fun K' => F₂ K') (k := sig.pKind)
-          (sOut := dcl.sOut) (Δc := Δ₁') (bc := b)
-          (.cmd hbody hCb (fun _ _ h => h) (PCtx.Widen.refl _) (ThreadCtx.Le.refl _)
-            ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty (.nil (hCb.mono hbody.le_W.2)))
-          ThreadCtx.empty_isEmpty hokb ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
-          (fun _ => ⟨PCtx.HWClosed.single hsInC, ThreadCtx.SOutClosed.empty⟩) ThreadCtx.CapOK.empty (hsees.callee hH _ _ _) (fun h => hfzs (Or.inl (hfzo h))) hretT (by rw [hpKind]; exact hΔb) hS'
-          (fun _ _ h => hF2.2 _ _ _ _ h le_rfl) hF2.1 hΘc₀ le_self_add ?_, ?_, ?_,
-        ThreadCtx.SameIds.of_empty hΘe ThreadCtx.empty_isEmpty, fun h => absurd hΘe h, fun _ => rfl, fun h => absurd hΘe h, fun _ => rfl⟩
-      · intro v₁ s₁ K₁ hv hs₁ _
-        exact .base hrest hex hΘf (ActOK.weaken ⟨hσ.bind (hv.trans hretTy.symm), _, Ae,
-          (hC.set hSp hH hD s₁).1, hR.set hC hSp hH hD s₁,
-          hS.set p sig.pKind (by rw [hsOut]; exact hs₁), hb⟩ hΓ hΔ.le) hwsr hwcr hnextc hcapc (hsees.of_shape hshc) hfzo
-      · simp only [hcost, hclk, add_zero]
-        calc _ = Kc * (e.cost M + D.bg M + ambBg M Am) + (Qb Kc (b + (Δ.erase p).bg M)
-                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
-                + Q₂ (Fb Kc) b) := by ring
-          _ ≤ Kc * (e.cost M + Δ.bg M + b) + (Qb Kc (b + (Δ.erase p).bg M)
-                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
-                + Q₂ (Fb Kc) b) := add_le_add hqc le_rfl
-          _ = _ := by ring
-      · simp only [hclk]; exact le_rfl
-  | @push σ parg d T ctl e x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut
-      Φc Xc Θc Δc bc bb hct hΘf hok hws hwc hclo hcapo hsees hfzo hret hΔf hsub hΦc hXc hΘc hbb hcl =>
-    intro q tick as' D' K' htop hstep
-    rcases ctl with _ | ⟨x₀, ctlr⟩
-    · -- the callee is done: return to the caller through the clause
-      cases hct
-      cases hstep
-      rename_i v hev
-      obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := hok
-      obtain ⟨v', hev', hvty⟩ := HasTy.eval hσ hret
-      rw [hev] at hev'; cases hev'
-      obtain ⟨s', hSp, hs'⟩ := hS.live hΔf
-      obtain ⟨d', hH', hD'⟩ := hC.vis parg (by rw [hSp]; exact REntry.at_ne_zero)
-      simp only [↓reduceIte, Option.some.injEq] at hH'
-      subst hH'
-      have hDd : D d = .at k s' := hD'.trans hSp
-      have hcl' := hcl v s' Kc hvty (hsub hs') le_rfl
-      rw [RPeriphs.set_eq_self hDd] at hcl'
-      refine ⟨_, _, _, _, _, hcl', ?_, le_rfl, ThreadCtx.SameIds.of_empty hΘf hΘc,
-        fun h => absurd hΘf h, fun _ => rfl, fun h => absurd hΘf h, fun _ => rfl⟩
-      simp only [zero_add]
-      refine add_le_add (mul_le_mul_left'' ?_) le_rfl
-      rw [add_assoc, add_assoc]
-      exact add_le_add le_rfl (ActOK.bg_le ⟨hσ, S, Ae, hC, hR, hS, hb⟩)
-    obtain ⟨c, rfl, hc⟩ := htop _ rfl _ rfl
-    rcases hc with hloc | ⟨x₁, g, e₁, p, rfl⟩
-    · -- a local command of the callee
-      have hfr := ActStep.local_frame hloc hstep
-      obtain ⟨σ', ctl', Γ', Δ', Θ', Q', F', rfl, hct', hok', hq, hF, hws', hwc', hsame, hcl', hK', hcap', hsh', hcf, hKfz⟩ :=
-        CtlTyped.step hM hΨ hP hΨc (fun _ _ hle hc => DevEnv.Ceil.mono hc hle) hct hok hws hwc hclo hcapo
-          hloc hstep
-      have hagree : ∀ dv, dv ≠ d → D' dv = D dv := by
-        intro dv hne
-        refine hfr dv fun y => ?_
-        by_cases hy : y = parg
-        · simp [hy, Ne.symm hne]
-        · simp [hy]
-      refine ⟨_, _, _, _, _,
-        .push (Δc := Δc) (bc := bc) hct' hΘf hok' hws' hwc' hcl' hcap' (hsees.of_shape hsh') hfzo hret hΔf hsub hΦc hXc hΘc hbb
-          (fun v s K'' hv hs hK => ?_), ?_,
-        hXc hF, hsame, fun _ => rfl, hK', fun _ => ⟨_, _, _, rfl, rfl, rfl, rfl, hcf⟩,
-        fun h => hKfz (hfzo h)⟩
-      · rw [RPeriphs.set_eq_of_agree hagree]
-        exact hcl v s K'' hv hs (hK.trans hF)
-      · calc _ = (q + Q' K' b) + F' K' * (e.cost M + Δf.bg M + b) + Φc (F' K') := by ring
-          _ ≤ _ := add_le_add (add_le_add hq (mul_le_mul_of_nonneg_right hF zero_le)) (hΦc hF)
-    · -- a nested call: push the new callee on top of this callee
-      obtain ⟨Γ₁, Δ₁, Θ₁, W, Q₁, F₁, Γ₁', Δ₁', Θ₁', Q₂, F₂, hc, hcW, hΓ, hΔ, hΘ, hwsr, hwcr, hrest, rfl, rfl⟩ :=
-        hct.cons_inv
-      have hnextc := CtlTyped.next_closed hP hΨc hc hΔ hΘ hclo
-      have hcapc := (hc.capOK hcapo).of_le hΘ hΔ.le
-      have hshc := hΔ.shape_eq.trans hc.shape_eq.1
-      cases hc with
-      | @call _ _ _ _ _ _ _ _ sig S₀ hg hty hx hp hsub₀ _ hfzs hΘe =>
-      cases hstep
-      rename_i dcl v d₁ k₁ s hgd hev hH hD
-      have hpd : p = parg ∧ d₁ = d := by
-        by_cases hp' : p = parg
-        · subst hp'; simp only [↓reduceIte, Option.some.injEq] at hH; exact ⟨rfl, hH.symm⟩
-        · simp [hp'] at hH
-      obtain ⟨rfl, rfl⟩ := hpd
-      obtain ⟨dcl', hd', hfd⟩ := hΨd g sig hg
-      rw [hgd] at hd'; cases hd'
-      obtain ⟨hargTy, hpKind, hsIn, hretTy, hsOut, ⟨Γb, Δb, Wb, Qb, Fb, S'', Sv, hbody, hretT,
-        hΔb, hS'', hWbp, hSv, hcost, hclk⟩, hsInC, _⟩ := hfd
-      obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := hok
-      have hSp := hR.lookup hH hD
-      obtain ⟨rfl, hs⟩ := hS.at hSp hp
-      obtain ⟨v', hev', hvty⟩ := HasTy.eval hσ hty
-      rw [hev] at hev'; cases hev'
-      have hF2 := hrest.mono hM hΨ
-      have hCb := DevEnv.Ceil.callee hcW hp hH hWbp hSv
-      have hΘc₀ : Θ₁'.IsEmpty := ThreadCtx.IsEmpty.of_le ((hΘe.observe _).observe _) hΘ
-      have hqc : Kc * (e₁.cost M + D.bg M + ambBg M Am) ≤ Kc * (e₁.cost M + Δ.bg M + b) := by
-        refine mul_le_mul_left'' ?_
-        rw [add_assoc, add_assoc]
-        exact add_le_add le_rfl (ActOK.bg_le ⟨hσ, S, Ae, hC, hR, hS, hb⟩)
-      have hokb : ActOK M (TCtx.empty.bind dcl.arg dcl.argTy)
-          (Finsupp.single dcl.parg (.live dcl.pKind dcl.sIn)) (b + (Δ.erase p).bg M)
-          (Mem.empty.set dcl.arg v) (fun y => if y = dcl.parg then some d₁ else none) D Am := by
-        refine ⟨MemOK.arg (hargTy ▸ hvty), Finsupp.single dcl.parg (.at sig.pKind s),
-          Ae + (S.erase p).entries, hC.call hSp hD dcl.parg, Rev.call hD, ?_, ?_⟩
-        · rw [← hpKind]; exact PeriphsOK.single (hsIn ▸ hsub₀ hs)
-        · rw [ambBg_add_entries]; exact add_le_add hb (hS.erase p).bg_le
-      refine ⟨_, _, _, _, _,
-        .push (Φc := fun K' => Q₂ K' b + F₂ K' * (e.cost M + Δf.bg M + b) + Φc (F₂ K'))
-          (Xc := fun K' => Xc (F₂ K')) (k := sig.pKind) (sOut := dcl.sOut)
-          (Δc := Δ₁') (bc := b)
-          (.cmd hbody hCb (fun _ _ h => h) (PCtx.Widen.refl _) (ThreadCtx.Le.refl _)
-            ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty (.nil (hCb.mono hbody.le_W.2)))
-          ThreadCtx.empty_isEmpty hokb ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
-          (fun _ => ⟨PCtx.HWClosed.single hsInC, ThreadCtx.SOutClosed.empty⟩) ThreadCtx.CapOK.empty (hsees.callee hH _ _ _) (fun h => hfzs (Or.inl (hfzo h))) hretT (by rw [hpKind]; exact hΔb) hS''
-          (fun _ _ h => add_le_add (add_le_add (hF2.2 _ _ _ _ h le_rfl)
-            (mul_le_mul_of_nonneg_right (hF2.1 h) zero_le)) (hΦc (hF2.1 h)))
-          (fun _ _ h => hXc (hF2.1 h)) hΘc₀ (hbb.trans le_self_add) ?_, ?_, ?_,
-        ThreadCtx.SameIds.of_empty hΘe ThreadCtx.empty_isEmpty, fun h => absurd hΘe h, fun _ => rfl, fun h => absurd hΘe h, fun _ => rfl⟩
-      · intro v₁ s₁ K₁ hv hs₁ hK
-        refine .push (Δc := Δc) (bc := bc) hrest hΘf (ActOK.weaken ⟨hσ.bind (hv.trans hretTy.symm), _, Ae,
-          (hC.set hSp hH hD s₁).1, hR.set hC hSp hH hD s₁,
-          hS.set p sig.pKind (by rw [hsOut]; exact hs₁), hb⟩ hΓ hΔ.le) hwsr hwcr hnextc hcapc (hsees.of_shape hshc) hfzo hret hΔf hsub hΦc hXc hΘc hbb
-          (fun v₂ s₂ K₂ hv₂ hs₂ hK₂ => ?_)
-        rw [RPeriphs.set_set]
-        refine hcl v₂ s₂ K₂ hv₂ hs₂ (hK₂.trans ?_)
-        simp only [hclk]
-        exact hF2.1 hK
-      · simp only [hcost, hclk, add_zero]
-        calc _ = Kc * (e₁.cost M + D.bg M + ambBg M Am) + (Qb Kc (b + (Δ.erase p).bg M)
-                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
-                + (Q₂ (Fb Kc) b + F₂ (Fb Kc) * (e.cost M + Δf.bg M + b)
-                  + Φc (F₂ (Fb Kc)))) := by ring
-          _ ≤ Kc * (e₁.cost M + Δ.bg M + b) + (Qb Kc (b + (Δ.erase p).bg M)
-                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
-                + (Q₂ (Fb Kc) b + F₂ (Fb Kc) * (e.cost M + Δf.bg M + b)
-                  + Φc (F₂ (Fb Kc)))) := add_le_add hqc le_rfl
-          _ = _ := by ring
-      · simp only [hclk]; exact le_rfl
 /-! ### Agreement survives captured devices moving -/
 
 omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R]
@@ -1456,10 +1172,678 @@ theorem CtlTyped.ambOK {fz Γ Δ Θ ctl Γf Δf Θf Q F}
     intro he hw
     exact ThreadCtx.AmbOK.of_await hth hp hamb hfb hs hΔ.le hΘ hws (ih he hws) hw
 
+/-! ### Stacks of activations -/
+
+/-- Every signature is the one T-FunDecl derives for its declaration (async version of
+`SigsDerived`): calls can step into the callee's body derivation. -/
+def SigsDerivedA (P : Platform K St) (M : CostModel K St R) (Ψd : FCtx K St R)
+    (Ψ : SigCtxA K St R) : Prop :=
+  ∀ g sig, Ψ g = some sig → ∃ d, Ψd g = some d ∧ FunDeclTypedA P M Ψ d sig
+
+omit [DecidableEq K] [CommSemiring R] [LinearOrder R] [OrderBot R] [IsOrderedRing R]
+  [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
+/-- A single handle with a closed set is a closed context (a function body's or thread body's
+starting context, from closed `sIn` / `S₀`). -/
+theorem PCtx.HWClosed.single {x : Var} {k : K} {S : Finset St} (h : P.hwClose k S = S) :
+    PCtx.HWClosed P (Finsupp.single x (PEntry.live k S) : PCtx K St) := by
+  intro y k' S' hy
+  rw [Finsupp.single_apply] at hy
+  split_ifs at hy
+  · cases hy; exact h
+
+omit [DecidableEq K] [CommSemiring R] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R]
+  [CanonicallyOrderedAdd R] [OrderedSub R] in
+/-- No pending threads: trivially closed exit states. -/
+theorem ThreadCtx.SOutClosed.empty :
+    (ThreadCtx.empty : ThreadCtx K St R).SOutClosed P := fun _ _ ht => by cases ht
+
+/-! ### Thread views: who holds the pending threads -/
+
+/-- **A thread view**: the typing view of the activation whose threads are pending (the
+*spawner*) — its thread context, peripheral context, ambient bound, handle map and thread-id
+map.  At most one activation of `main`'s stack has pending threads: an activation with pending
+threads calls only frozen functions (`stableClock`), and frozen code cannot spawn. -/
+structure TView (K St R : Type) where
+  Θ : ThreadCtx K St R
+  Δ : PCtx K St
+  b : R
+  H : Var → Option Dev
+  T : Var → Option ThreadId
+
+/-- **A suspended spawner's view agrees with the store**, and its typing invariants hold: its
+agreement under the view's context and ambient bound, window shape and cover, captured handles
+and the backward window bound. -/
+def TView.OK (M : CostModel K St R) (Am : Multiset (K × St)) (tv : TView K St R)
+    (D : RPeriphs K St) : Prop :=
+  (∃ Γ σ, ActOK M Γ tv.Δ tv.b σ tv.H D Am) ∧ tv.Θ.WinShape tv.Δ.shape ∧
+    tv.Θ.WinCover tv.Δ ∧ tv.Θ.CapOK tv.Δ ∧ tv.Θ.AmbOK M
+
+/-- A device seen through a handle is in a state the handle's set allows. -/
+theorem ActOK.state_in {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem} {H : Var → Option Dev}
+    {D : RPeriphs K St} {Am : Multiset (K × St)} (h : ActOK M Γ Δ b σ H D Am) {x : Var}
+    {d : Dev} {k : K} {s : St} (hH : H x = some d) (hD : D d = .at k s) :
+    ∃ T, Δ x = .live k T ∧ s ∈ T := by
+  obtain ⟨_, S, _, _, hR, hS, _⟩ := h
+  have hSx : D d = S x := hR x d hH (by rw [hD]; exact REntry.at_ne_zero)
+  rw [hD] at hSx
+  have := hS x
+  rw [← hSx] at this
+  cases hΔ : Δ x with
+  | absent => rw [hΔ] at this; exact absurd this id
+  | live k' T => rw [hΔ] at this; obtain ⟨rfl, hs⟩ := this; exact ⟨T, rfl, hs⟩
+
+/-- Re-typing a visible handle with a larger set containing its device's state keeps the
+agreement (used for a spawner's suspended view, whose passed handle is typed at `visit`). -/
+theorem ActOK.retype {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem} {H : Var → Option Dev}
+    {D : RPeriphs K St} {Am : Multiset (K × St)} (h : ActOK M Γ Δ b σ H D Am) {p : Var}
+    {d : Dev} {k : K} {s : St} {V : Finset St} (hH : H p = some d) (hD : D d = .at k s)
+    (hs : s ∈ V) : ActOK M Γ (Δ.set p k V) b σ H D Am := by
+  obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := h
+  have hSp := hR.lookup hH hD
+  refine ⟨hσ, S, Ae, hC, hR, ?_, hb⟩
+  rw [← RPeriphs.set_eq_self hSp]
+  exact hS.set _ _ hs
+
+/-- Everything but one visible device, plus the outer ambient, costs at most the context
+without its handle plus the ambient bound. -/
+theorem ActOK.bg_erase_le {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem}
+    {H : Var → Option Dev} {D : RPeriphs K St} {Am : Multiset (K × St)}
+    (h : ActOK M Γ Δ b σ H D Am) {p : Var} {d : Dev} {k : K} {V : Finset St}
+    (hH : H p = some d) (hΔ : Δ p = .live k V) :
+    (D.erase d).bg M + ambBg M Am ≤ (Δ.erase p).bg M + b := by
+  obtain ⟨_, S, Ae, hC, _, hS, hb⟩ := h
+  obtain ⟨s, hSp, _⟩ := hS.live hΔ
+  obtain ⟨d', hd', hD'⟩ := hC.lookup hSp
+  rw [hH] at hd'; cases hd'
+  rw [← hC.erase_bg M hSp hD']
+  exact add_le_add (hS.erase p).bg_le hb
+
+/-- A pending thread's device and an uncaptured live handle's device differ. -/
+theorem ActOK.dev_ne_free {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem}
+    {H : Var → Option Dev} {D : RPeriphs K St} {Am : Multiset (K × St)}
+    {Θ : ThreadCtx K St R} (h : ActOK M Γ Δ b σ H D Am) (hcap : Θ.CapOK Δ) {t : Var}
+    {th : ThreadTy K St R} (ht : Θ t = some th) {p : Var} {k : K} {V : Finset St}
+    (hp : Δ p = .live k V) (hnc : ¬ Θ.Captures p) {c d : Dev} (hc : H th.p = some c)
+    (hd : H p = some d) : c ≠ d := by
+  rintro rfl
+  obtain ⟨_, S, _, hC, _, hS, _⟩ := h
+  obtain ⟨V₁, hV₁, _⟩ := hcap.1 t th ht
+  obtain ⟨s₁, hS₁, _⟩ := hS.live hV₁
+  obtain ⟨s₂, hS₂, _⟩ := hS.live hp
+  exact hnc ⟨t, th, ht, hC.inj th.p p c (by rw [hS₁]; exact REntry.at_ne_zero)
+    (by rw [hS₂]; exact REntry.at_ne_zero) hc hd⟩
+
+/-- A suspended view stays in agreement when the passed device moves within its set. -/
+theorem TView.OK.move {Am : Multiset (K × St)} {tv : TView K St R} {D : RPeriphs K St}
+    (h : TView.OK M Am tv D) {p : Var} {d : Dev} {k k' : K} {s s' : St} {V : Finset St}
+    (hH : tv.H p = some d) (hΔ : tv.Δ p = .live k' V) (hD : D d = .at k s) (hs' : s' ∈ V) :
+    TView.OK M Am tv (D.set d k s') := by
+  obtain ⟨⟨Γ, σ, hok⟩, rest⟩ := h
+  obtain ⟨T, hT, _⟩ := hok.state_in hH hD
+  rw [hΔ] at hT; cases hT
+  exact ⟨⟨Γ, σ, hok.move hH hΔ hs'⟩, rest⟩
+
+/-- A callee's body visits only `visit` at its parameter (T-FunDecl), so it respects a ceiling
+keeping the passed device within any set containing `visit`. -/
+theorem DevEnv.Ceil.visit {Wb : PCtx K St} {parg : Var} {d : Dev} {k' : K} {Sv V O : Finset St}
+    (hWb : Wb parg = .live k' Sv) (hSv : Sv ⊆ V) :
+    DevEnv.Ceil (some ⟨d, V, O⟩) (fun y => if y = parg then some d else none) Wb := by
+  intro e he x k₁ S₁ hx hW
+  simp only [Option.mem_def, Option.some.injEq] at he; subst he
+  by_cases hxp : x = parg
+  · subst hxp; rw [hWb] at hW; cases hW; exact hSv
+  · simp [hxp] at hx
+
+/-- A call's visited context includes the callee's exit states at the passed handle, so a
+ceiling on the caller bounds them. -/
+theorem DevEnv.Ceil.call_out {E : Option (DevEnv St)} {H : Var → Option Dev} {Δ : PCtx K St}
+    {p : Var} {k : K} {S V O : Finset St} {d : Dev}
+    (hcW : DevEnv.Ceil E H ((Δ.join (Δ.set p k V)).join (Δ.set p k O)))
+    (hp : Δ p = .live k S) (hH : H p = some d) : ∀ e ∈ E, e.dev = d → O ⊆ e.env := by
+  intro e he hed
+  have hle : (Δ.set p k O).Le ((Δ.join (Δ.set p k V)).join (Δ.set p k O)) :=
+    PCtx.le_join_right ((PCtx.shape_join (PCtx.shape_set_of hp V).symm).trans
+      (PCtx.shape_set_of hp O).symm)
+  exact (hcW.mono hle) e he p k O (by rw [hH, hed]) (by simp)
+
+/-- A handle bound in a context stays bound when the shape is unchanged. -/
+theorem PCtx.exists_live_of_shape {Δ Δ' : PCtx K St} {x : Var}
+    (h : ∃ k T, Δ x = .live k T) (hsh : Δ'.shape = Δ.shape) : ∃ k T, Δ' x = .live k T := by
+  obtain ⟨k, T, hx⟩ := h
+  have hs := congrFun hsh x
+  cases hd : Δ' x with
+  | absent => simp only [PCtx.shape, hd, hx] at hs; cases hs
+  | live k' T' => exact ⟨k', T', rfl⟩
+
+/-- **A typed stack of activations** (one segment), with its potential `Φ` (remaining typed
+budget) at the current clock, an upper bound `X` on its exit clock, the running activation's
+view `Θ Δ b`, the bottom layer's ambient bound `bb`, the **thread view** `tv` (the spawner's
+view, possibly suspended below callees) and a **suspension ceiling** `Vs` (the set the
+suspended spawner's passed device must stay in).
+
+* `base`: a bottom activation (`main`, or a thread body) whose control stack is typed, ends
+  with no pending threads, and agrees with the store; potential `Q K b`; its thread view is its
+  own view.
+* `push`: a called function on top of its caller, captured in a **continuation clause** (for
+  any return value, final state of the passed device in `sOut`, and return clock up to the
+  callee's exit bound, the caller is again a typed stack).  The callee inherits a thread view
+  `tvb`: its caller's, if the caller has no pending threads (`tvb = tvc`), or, if the caller is a
+  spawner, the caller's **suspended view** — its context with the passed handle at `visit`, which
+  pending threads' windows observe at the call — whose agreement with the store is kept here
+  (`TView.OK`), the callee and its own callees keeping the passed device within `visit` (the
+  ceiling `Vs`), and whose threads are those of the caller after the return.  A callee under a
+  suspended spawner is frozen.  The stack's thread view is `tvb`, or the callee's own view if it
+  spawns (only when nothing below has pending threads).
+
+In thread stacks (`E = some _`) every layer's current context is closed under hardware steps
+(as are its pending threads' exit states), so a hardware step on the thread's device stays in
+it.  The clause refers to the current store updated at the passed device; since the callee can
+only change that device, the clause stays valid as the callee runs. -/
+inductive StackOK (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
+    (Am : Multiset (K × St)) (E : Option (DevEnv St)) :
+    List (Act St R) → RPeriphs K St → R → R → R → ThreadCtx K St R → PCtx K St → R → R →
+    TView K St R → Option (DevEnv St) → Prop where
+  | base {σ H T ctl fz Γ Δ Θ Γf Δf Θf Q F b D Kc} :
+      CtlTyped P M Ψ (fun W => DevEnv.Ceil E H W ∧ DevEnv.Ceil (none : Option (DevEnv St)) H W)
+        E.isSome fz Γ Δ Θ ctl Γf Δf Θf Q F →
+      DevEnv.Exit E H Δf → Θf.IsEmpty →
+      ActOK M Γ Δ b σ H D Am →
+      Θ.WinShape Δ.shape → Θ.WinCover Δ → (E.isSome = true → Δ.HWClosed P ∧ Θ.SOutClosed P) →
+      Θ.CapOK Δ →
+      DevEnv.Sees E H Δ →
+      (E.isSome = true → fz = true) →
+      StackOK P M Ψ Am E [⟨σ, H, T, ctl, none⟩] D Kc (Q Kc b) (F Kc) Θ Δ b b ⟨Θ, Δ, b, H, T⟩ none
+  | push {σ parg d T ctl e x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut}
+      {Φc Xc : R → R} {Θc : ThreadCtx K St R} {Δc : PCtx K St} {bc bb : R}
+      {tv tvb tvc : TView K St R} {Vs Vsc : Option (DevEnv St)} :
+      CtlTyped P M Ψ (fun W => DevEnv.Ceil E (fun y => if y = parg then some d else none) W ∧
+          DevEnv.Ceil Vs (fun y => if y = parg then some d else none) W) E.isSome fz Γ Δ Θ ctl
+        Γf Δf Θf Q F → Θf.IsEmpty →
+      ActOK M Γ Δ b σ (fun y => if y = parg then some d else none) D Am →
+      Θ.WinShape Δ.shape → Θ.WinCover Δ → (E.isSome = true → Δ.HWClosed P ∧ Θ.SOutClosed P) →
+      Θ.CapOK Δ →
+      DevEnv.Sees E (fun y => if y = parg then some d else none) Δ →
+      (∃ k₁ T₁, Δ parg = .live k₁ T₁) →
+      (E.isSome = true → fz = true) →
+      HasTy Γf e τ → Δf parg = .live k S' → S' ⊆ sOut →
+      Monotone Φc → Monotone Xc → bb ≤ b →
+      ((tvb = tvc ∧ Vs = Vsc) ∨ (tvc = ⟨Θc, Δc, bc, Hc, Tc⟩ ∧ tvb.b = bc ∧ tvb.H = Hc ∧
+        tvb.T = Tc ∧ tvb.Θ.SameIds Θc)) →
+      (∀ ev ∈ Vs, ev.dev = d ∧ ∃ p' k', tvb.H p' = some d ∧ tvb.Δ p' = .live k' ev.env ∧
+        ¬ tvb.Θ.Captures p' ∧ tvb.b + (tvb.Δ.erase p').bg M ≤ b) →
+      (¬ tvb.Θ.IsEmpty → Vs.isSome = true) →
+      (¬ tvb.Θ.IsEmpty → fz = true) →
+      (¬ tvb.Θ.IsEmpty → TView.OK M Am tvb D) →
+      ((Θ.IsEmpty ∧ tv = tvb) ∨
+        (tvb.Θ.IsEmpty ∧ tv = ⟨Θ, Δ, b, fun y => if y = parg then some d else none, T⟩)) →
+      (∀ v s' K', v.ty = τ → s' ∈ sOut → K' ≤ F Kc →
+        StackOK P M Ψ Am E (⟨σc.set x v, Hc, Tc, ctlc, rc⟩ :: rest) (D.set d k s') K'
+          (Φc K') (Xc K') Θc Δc bc bb tvc Vsc) →
+      StackOK P M Ψ Am E
+        (⟨σ, fun y => if y = parg then some d else none, T, ctl, some (e, x)⟩ ::
+          ⟨σc, Hc, Tc, ctlc, rc⟩ :: rest) D Kc
+        (Q Kc b + F Kc * (e.cost M + Δf.bg M + b) + Φc (F Kc)) (Xc (F Kc)) Θ Δ b bb tv Vs
+
+/-- The running activation's next control entry is a local command or a call (or there is
+none).  `async` / `await` are handled in piece 3. -/
+def TopOK (as : List (Act St R)) : Prop :=
+  ∀ a ∈ as.head?, ∀ x ∈ a.ctl.head?,
+    ∃ c, x = .cmd c ∧ (c.Local ∨ ∃ x g e p, c = .call x g e p)
+
+/-- No pending threads: the empty thread context. -/
+theorem ThreadCtx.empty_isEmpty {R : Type} : (ThreadCtx.empty : ThreadCtx K St R).IsEmpty :=
+  fun _ => rfl
+
+/-- The current context of a control stack respects its ceiling (its first entry's visited
+context is above it; an empty stack's ceiling premise is on it directly). -/
+theorem CtlTyped.ceil_view (hCd : ∀ W W' : PCtx K St, W'.Le W → C W → C W')
+    {fz Γ Δ Θ ctl Γf Δf Θf Q F} (h : CtlTyped P M Ψ C cl fz Γ Δ Θ ctl Γf Δf Θf Q F) : C Δ := by
+  cases h with
+  | nil hC => exact hC
+  | cmd hc hcW => exact hCd _ _ hc.le_W.1 hcW
+  | awaitW _ _ _ hfb hcW => exact hCd _ _ hfb.le_W.1 hcW
+
+/-- **The store after a step of the running activation**: unchanged, or one device it sees
+moved to a new state of the same kind. -/
+theorem ActStep.store {Ψd : FCtx K St R} {A : Multiset (K × St)} {a : Act St R}
+    {as D Kc q tick as' D' K'} (h : ActStep M Ψd A (a :: as) D Kc q tick as' D' K') :
+    D' = D ∨ ∃ x d k s st, a.H x = some d ∧ D d = .at k s ∧ D' = D.set d k st := by
+  cases h with
+  | transition hH hD => exact Or.inr ⟨_, _, _, _, _, hH, hD, rfl⟩
+  | downgrade hH hD => exact Or.inr ⟨_, _, _, _, _, hH, hD, rfl⟩
+  | _ => exact Or.inl rfl
+
+
+/-- **One step of a typed stack pays for itself** (local commands, calls and returns, as
+`ActStep`s — independent of other threads and the pool).  The step's cost plus the new
+potential is at most the old potential, and the exit bound does not grow.  The thread view
+keeps the same pending threads; while there are any, the spawner's ambient bound, handle and
+thread-id maps, the clock and the threads' devices are unchanged. -/
+theorem StackOK.step (hM : M.WF)
+    (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono sig.cost sig.clk) {Ψd : FCtx K St R}
+    (hP : P.WF) (hΨc : SigsClosedA P Ψ)
+    (hΨd : SigsDerivedA P M Ψd Ψ) {Am : Multiset (K × St)} {E : Option (DevEnv St)}
+    {as D Kc Φ X Θ Δ b bb tv Vs} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs) :
+    ∀ {q tick as' D' K'}, TopOK as → ActStep M Ψd Am as D Kc q tick as' D' K' →
+    ∃ Φ' X' Θ' Δ' b' tv' Vs', StackOK P M Ψ Am E as' D' K' Φ' X' Θ' Δ' b' bb tv' Vs' ∧
+      q + Φ' ≤ Φ ∧ X' ≤ X ∧ tv.Θ.SameIds tv'.Θ ∧
+      (¬ tv.Θ.IsEmpty → tv'.b = tv.b ∧ tv'.H = tv.H ∧ tv'.T = tv.T ∧ K' = Kc ∧
+        ∀ t th d, tv.Θ t = some th → tv.H th.p = some d → D' d = D d) ∧
+      (E.isSome = true → K' = Kc) := by
+  cases h with
+  | @base σ H T ctl fz Γ Δ Θ Γf Δf Θf Q F b D Kc hct hex hΘf hok hws hwc hclo hcapo hsees hfzo =>
+    intro q tick as' D' K' htop hstep
+    rcases ctl with _ | ⟨x₀, ctlr⟩
+    · cases hstep
+    obtain ⟨c, rfl, hc⟩ := htop _ rfl _ rfl
+    rcases hc with hloc | ⟨x, g, e, p, rfl⟩
+    · -- a local command
+      obtain ⟨σ', ctl', Γ', Δ', Θ', Q', F', rfl, hct', hok', hq, hF, hws', hwc', hsame, hcl', hK',
+        hcap', hsh', hcf, hKfz⟩ :=
+        CtlTyped.step hM hΨ hP hΨc (fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩) hct hok hws
+          hwc hclo hcapo hloc hstep
+      exact ⟨_, _, _, _, _, _, _, .base hct' hex hΘf hok' hws' hwc' hcl' hcap'
+        (hsees.of_shape hsh') hfzo, hq, hF, hsame, fun h => ⟨rfl, rfl, rfl, hK' h, hcf⟩,
+        fun h => hKfz (hfzo h)⟩
+    · -- a call: push the callee; the caller's continuation becomes its clause
+      obtain ⟨Γ₁, Δ₁, Θ₁, W, Q₁, F₁, Γ₁', Δ₁', Θ₁', Q₂, F₂, hc, hcW, hΓ, hΔ, hΘ, hwsr, hwcr,
+        hrest, rfl, rfl⟩ := hct.cons_inv
+      have hnextc := CtlTyped.next_closed hP hΨc hc hΔ hΘ hclo
+      have hcapc := (hc.capOK hcapo).of_le hΘ hΔ.le
+      have hshc := hΔ.shape_eq.trans hc.shape_eq.1
+      have hw₁ := hc.winShape hws
+      rw [← hc.shape_eq.1, hΔ.le.shape_eq] at hw₁
+      have hamb₁ : Θ₁.AmbOK M := ThreadCtx.AmbOK.of_le hΘ hw₁ hwsr (hrest.ambOK hΘf hwsr)
+      cases hc with
+      | @call _ _ _ _ _ _ _ _ sig S₀ hg hty hx hp hsub₀ hnc hfzs =>
+      cases hstep
+      rename_i dcl v d k s hgd hev hH hD
+      obtain ⟨dcl', hd', hfd⟩ := hΨd g sig hg
+      rw [hgd] at hd'; cases hd'
+      obtain ⟨hargTy, hpKind, hsIn, hretTy, hsOut, ⟨Γb, Δb, Wb, Qb, Fb, S', Sv, hbody, hretT,
+        hΔb, hS', hWbp, hSv, hcost, hclk⟩, hsInC, _⟩ := hfd
+      have hok₀ := hok
+      obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := hok
+      have hSp := hR.lookup hH hD
+      obtain ⟨rfl, hs⟩ := hS.at hSp hp
+      obtain ⟨v', hev', hvty⟩ := HasTy.eval hσ hty
+      rw [hev] at hev'; cases hev'
+      have hF2 := hrest.mono hM hΨ
+      have hCb := DevEnv.Ceil.callee hcW.1 hp hH hWbp hSv
+      have hInSv : dcl.sIn ⊆ Sv := by
+        have := hbody.le_W.1 dcl.parg
+        rw [Finsupp.single_eq_same, hWbp] at this
+        exact this.2
+      have hsV : s ∈ sig.visit := hSv (hInSv (hsIn ▸ hsub₀ hs))
+      have hqc : Kc * (e.cost M + D.bg M + ambBg M Am) ≤ Kc * (e.cost M + Δ.bg M + b) := by
+        refine mul_le_mul_left'' ?_
+        rw [add_assoc, add_assoc]
+        exact add_le_add le_rfl (ActOK.bg_le ⟨hσ, S, Ae, hC, hR, hS, hb⟩)
+      have hokb : ActOK M (TCtx.empty.bind dcl.arg dcl.argTy)
+          (Finsupp.single dcl.parg (.live dcl.pKind dcl.sIn)) (b + (Δ.erase p).bg M)
+          (Mem.empty.set dcl.arg v) (fun y => if y = dcl.parg then some d else none) D Am := by
+        refine ⟨MemOK.arg (hargTy ▸ hvty), Finsupp.single dcl.parg (.at sig.pKind s),
+          Ae + (S.erase p).entries, hC.call hSp hD dcl.parg, Rev.call hD, ?_, ?_⟩
+        · rw [← hpKind]; exact PeriphsOK.single (hsIn ▸ hsub₀ hs)
+        · rw [ambBg_add_entries]; exact add_le_add hb (hS.erase p).bg_le
+      have hcont : ∀ v₁ s₁ K₁, v₁.ty = dcl.retTy → s₁ ∈ dcl.sOut → K₁ ≤ Fb Kc →
+          StackOK P M Ψ Am E [⟨σ.set x v₁, H, T, ctlr, none⟩] (D.set d sig.pKind s₁) K₁
+            (Q₂ K₁ b) (F₂ K₁) Θ₁' Δ₁' b b ⟨Θ₁', Δ₁', b, H, T⟩ none := by
+        intro v₁ s₁ K₁ hv hs₁ _
+        exact .base hrest hex hΘf (ActOK.weaken ⟨hσ.bind (hv.trans hretTy.symm), _, Ae,
+          (hC.set hSp hH hD s₁).1, hR.set hC hSp hH hD s₁,
+          hS.set p sig.pKind (by rw [hsOut]; exact hs₁), hb⟩ hΓ hΔ.le) hwsr hwcr hnextc hcapc
+          (hsees.of_shape hshc) hfzo
+      have hpot : Kc * (e.cost M + D.bg M + ambBg M Am) +
+          ((Qb Kc (b + (Δ.erase p).bg M) + 0) +
+            Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M)) + Q₂ (Fb Kc) b) ≤
+          Kc * (e.cost M + Δ.bg M + b) + sig.cost Kc (b + (Δ.erase p).bg M) +
+            Q₂ (sig.clk Kc) b := by
+        rw [hcost, hclk, add_zero]
+        calc _ = Kc * (e.cost M + D.bg M + ambBg M Am) + (Qb Kc (b + (Δ.erase p).bg M)
+                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
+                + Q₂ (Fb Kc) b) := by ring
+          _ ≤ Kc * (e.cost M + Δ.bg M + b) + (Qb Kc (b + (Δ.erase p).bg M)
+                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
+                + Q₂ (Fb Kc) b) := add_le_add hqc le_rfl
+          _ = _ := by ring
+      by_cases hΘe : Θ.IsEmpty
+      · -- the caller has no pending threads: the callee inherits a thread-free view
+        have hΘ₁ : Θ₁'.IsEmpty := ThreadCtx.IsEmpty.of_le ((hΘe.observe _).observe _) hΘ
+        refine ⟨_, _, _, _, _, _, _,
+          .push (Φc := fun K' => Q₂ K' b) (Xc := fun K' => F₂ K') (k := sig.pKind)
+            (sOut := dcl.sOut) (Δc := Δ₁') (bc := b) (tvb := ⟨Θ₁', Δ₁', b, H, T⟩)
+            (tvc := ⟨Θ₁', Δ₁', b, H, T⟩) (Vs := none) (Vsc := none)
+            (.cmd hbody ⟨hCb, DevEnv.Ceil.of_none⟩ (fun _ _ h => h) (PCtx.Widen.refl _)
+              (ThreadCtx.Le.refl _) ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+              (.nil ⟨hCb.mono hbody.le_W.2, DevEnv.Ceil.of_none⟩))
+            ThreadCtx.empty_isEmpty hokb ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+            (fun _ => ⟨PCtx.HWClosed.single hsInC, ThreadCtx.SOutClosed.empty⟩)
+            ThreadCtx.CapOK.empty (hsees.callee hH _ _ _) ⟨dcl.pKind, dcl.sIn, by simp⟩ (fun h => hfzs (Or.inl (hfzo h)))
+            hretT (by rw [hpKind]; exact hΔb) hS' (fun _ _ h => hF2.2 _ _ _ _ h le_rfl) hF2.1
+            le_self_add (Or.inl ⟨rfl, rfl⟩) (fun ev h => by cases h) (fun h => absurd hΘ₁ h)
+            (fun h => absurd hΘ₁ h) (fun h => absurd hΘ₁ h)
+            (Or.inl ⟨ThreadCtx.empty_isEmpty, rfl⟩) hcont, hpot, by simp only [hclk]; exact le_rfl,
+          ThreadCtx.SameIds.of_empty hΘe hΘ₁, fun h => absurd hΘe h, fun _ => rfl⟩
+      · -- the caller is a spawner: it is suspended, its view with `p` at `visit`
+        have hws₁ : Θ.WinShape (Δ.set p sig.pKind sig.visit).shape := by
+          rw [PCtx.shape_set_of hp]; exact hws
+        have hambS : (Θ.observe (Δ.set p sig.pKind sig.visit)).AmbOK M :=
+          hamb₁.of_observe (hws₁.observe rfl)
+            ((PCtx.shape_set_of hp _).trans (PCtx.shape_set_of hp _).symm)
+        refine ⟨_, _, _, _, _, _, _,
+          .push (Φc := fun K' => Q₂ K' b) (Xc := fun K' => F₂ K') (k := sig.pKind)
+            (sOut := dcl.sOut) (Δc := Δ₁') (bc := b)
+            (tvb := ⟨Θ.observe (Δ.set p sig.pKind sig.visit), Δ.set p sig.pKind sig.visit, b,
+              H, T⟩)
+            (tvc := ⟨Θ₁', Δ₁', b, H, T⟩) (Vs := some ⟨d, sig.visit, ∅⟩) (Vsc := none)
+            (.cmd hbody ⟨hCb, DevEnv.Ceil.visit hWbp hSv⟩ (fun _ _ h => h) (PCtx.Widen.refl _)
+              (ThreadCtx.Le.refl _) ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+              (.nil ⟨hCb.mono hbody.le_W.2, (DevEnv.Ceil.visit hWbp hSv).mono hbody.le_W.2⟩))
+            ThreadCtx.empty_isEmpty hokb ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+            (fun _ => ⟨PCtx.HWClosed.single hsInC, ThreadCtx.SOutClosed.empty⟩)
+            ThreadCtx.CapOK.empty (hsees.callee hH _ _ _) ⟨dcl.pKind, dcl.sIn, by simp⟩ (fun h => hfzs (Or.inl (hfzo h)))
+            hretT (by rw [hpKind]; exact hΔb) hS' (fun _ _ h => hF2.2 _ _ _ _ h le_rfl) hF2.1
+            le_self_add
+            (Or.inr ⟨rfl, rfl, rfl, rfl,
+              (ThreadCtx.SameIds.observe _ _).trans (ThreadCtx.SameIds.of_le hΘ)⟩)
+            ?_ (fun _ => rfl) (fun _ => hfzs (Or.inr hΘe))
+            (fun _ => ⟨⟨Γ, σ, hok₀.retype hH hD hsV⟩, hws₁.observe rfl,
+              ThreadCtx.WinCover.observe_self hws₁, (hcapo.set hnc _ _).observe _, hambS⟩)
+            (Or.inl ⟨ThreadCtx.empty_isEmpty, rfl⟩) hcont, hpot, by simp only [hclk]; exact le_rfl,
+          ThreadCtx.SameIds.observe _ _, fun _ => ⟨rfl, rfl, rfl, rfl, fun _ _ _ _ _ => rfl⟩,
+          fun _ => rfl⟩
+        intro ev hev
+        simp only [Option.mem_def, Option.some.injEq] at hev; subst hev
+        exact ⟨rfl, p, sig.pKind, hH, by simp,
+          fun hc' => hnc (ThreadCtx.captures_of_observe hc'), by rw [PCtx.erase_set_self]⟩
+  | @push σ parg d T ctl e x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut
+      Φc Xc Θc Δc bc bb tv tvb tvc Vs Vsc hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub
+      hΦc hXc hbb hlink hVs hVsS hfzb htvb htv hcl =>
+    intro q tick as' D' K' htop hstep
+    rcases ctl with _ | ⟨x₀, ctlr⟩
+    · -- the callee is done: return to the caller through the clause
+      cases hct
+      cases hstep
+      rename_i v hev
+      obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := hok
+      obtain ⟨v', hev', hvty⟩ := HasTy.eval hσ hret
+      rw [hev] at hev'; cases hev'
+      obtain ⟨s', hSp, hs'⟩ := hS.live hΔf
+      obtain ⟨d', hH', hD'⟩ := hC.vis parg (by rw [hSp]; exact REntry.at_ne_zero)
+      simp only [↓reduceIte, Option.some.injEq] at hH'
+      subst hH'
+      have hDd : D d = .at k s' := hD'.trans hSp
+      have hcl' := hcl v s' Kc hvty (hsub hs') le_rfl
+      rw [RPeriphs.set_eq_self hDd] at hcl'
+      refine ⟨_, _, _, _, _, _, _, hcl', ?_, le_rfl, ?_, ?_, fun _ => rfl⟩
+      · simp only [zero_add]
+        refine add_le_add (mul_le_mul_left'' ?_) le_rfl
+        rw [add_assoc, add_assoc]
+        exact add_le_add le_rfl (ActOK.bg_le ⟨hσ, S, Ae, hC, hR, hS, hb⟩)
+      · rcases htv with ⟨_, rfl⟩ | ⟨htvbE, rfl⟩
+        · rcases hlink with ⟨rfl, rfl⟩ | ⟨rfl, _, _, _, hs⟩
+          · exact ThreadCtx.SameIds.refl _
+          · exact hs
+        · refine ThreadCtx.SameIds.of_empty hΘf ?_
+          rcases hlink with ⟨rfl, rfl⟩ | ⟨rfl, _, _, _, hs⟩
+          · exact htvbE
+          · exact fun t => ((hs t).1).1 (htvbE t)
+      · intro hne
+        rcases htv with ⟨_, rfl⟩ | ⟨_, rfl⟩
+        · rcases hlink with ⟨rfl, rfl⟩ | ⟨rfl, hb', hH'', hT'', _⟩
+          · exact ⟨rfl, rfl, rfl, rfl, fun _ _ _ _ _ => rfl⟩
+          · exact ⟨hb'.symm, hH''.symm, hT''.symm, rfl, fun _ _ _ _ _ => rfl⟩
+        · exact absurd hΘf hne
+    obtain ⟨c, rfl, hc⟩ := htop _ rfl _ rfl
+    rcases hc with hloc | ⟨x₁, g, e₁, p, rfl⟩
+    · -- a local command of the callee
+      have hfr := ActStep.local_frame hloc hstep
+      have hstore := hstep.store
+      obtain ⟨σ', ctl', Γ', Δ', Θ', Q', F', rfl, hct', hok', hq, hF, hws', hwc', hsame, hcl', hK',
+        hcap', hsh', hcf, hKfz⟩ :=
+        CtlTyped.step hM hΨ hP hΨc (fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩) hct hok hws
+          hwc hclo hcapo hloc hstep
+      have hagree : ∀ dv, dv ≠ d → D' dv = D dv := by
+        intro dv hne
+        refine hfr dv fun y => ?_
+        by_cases hy : y = parg
+        · simp [hy, Ne.symm hne]
+        · simp [hy]
+      -- the suspended view moves with the passed device, within the ceiling
+      have hD'm : D' = D ∨ ∃ k₀ s₀ st, D d = .at k₀ s₀ ∧ D' = D.set d k₀ st := by
+        rcases hstore with h₀ | ⟨x', d', k₀, s₀, st, hx', hD₀, rfl⟩
+        · exact Or.inl h₀
+        · have : d' = d := by
+            by_cases hy : x' = parg
+            · simp only [hy, ↓reduceIte, Option.some.injEq] at hx'; exact hx'.symm
+            · simp [hy] at hx'
+          subst this
+          exact Or.inr ⟨k₀, s₀, st, hD₀, rfl⟩
+      have htvb' : ¬ tvb.Θ.IsEmpty → TView.OK M Am tvb D' := by
+        intro hne
+        rcases hD'm with rfl | ⟨k₀, s₀, st, hD₀, rfl⟩
+        · exact htvb hne
+        · obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.1 (hVsS hne)
+          obtain ⟨hdev, p', k', hH', hΔ', _, _⟩ := hVs ev (by rw [hev]; rfl)
+          have hceil := (hct'.ceil_view fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩).2
+          obtain ⟨T₂, hT₂, hst⟩ := hok'.state_in (x := parg) (d := d) (k := k₀) (s := st)
+            (by simp only [↓reduceIte]) (by simp [RPeriphs.set_apply])
+          exact (htvb hne).move hH' hΔ' hD₀
+            (hceil ev (by rw [hev]; rfl) parg _ _ (by simp [hdev]) hT₂ hst)
+      rcases htv with ⟨hΘe, rfl⟩ | ⟨htvbE, rfl⟩
+      · -- the thread view is inherited: unchanged
+        have hΘe' : Θ'.IsEmpty := fun t => ((hsame t).1).1 (hΘe t)
+        refine ⟨_, _, _, _, _, _, _,
+          .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct' hΘf hok' hws' hwc' hcl'
+            hcap' (hsees.of_shape hsh') (PCtx.exists_live_of_shape hplv hsh') hfzo hret hΔf hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb'
+            (Or.inl ⟨hΘe', rfl⟩) (fun v s K'' hv hs hK => ?_), ?_, hXc hF,
+          ThreadCtx.SameIds.refl _, fun hne => ⟨rfl, rfl, rfl, hKfz (hfzb hne), ?_⟩,
+          fun h => hKfz (hfzo h)⟩
+        · rw [RPeriphs.set_eq_of_agree hagree]
+          exact hcl v s K'' hv hs (hK.trans hF)
+        · calc _ = (q + Q' K' b) + F' K' * (e.cost M + Δf.bg M + b) + Φc (F' K') := by ring
+            _ ≤ _ := add_le_add (add_le_add hq (mul_le_mul_of_nonneg_right hF zero_le)) (hΦc hF)
+        · intro t th c' ht hc'
+          rcases hD'm with rfl | ⟨k₀, s₀, st, hD₀, rfl⟩
+          · rfl
+          · obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.1 (hVsS hne)
+            obtain ⟨hdev, p', k', hH', hΔ', hnc', _⟩ := hVs ev (by rw [hev]; rfl)
+            obtain ⟨⟨Γs, σs, hoks⟩, _, _, hcaps, _⟩ := htvb hne
+            have hne' := hoks.dev_ne_free hcaps ht hΔ' hnc' hc' hH'
+            simp [RPeriphs.set_apply, hne']
+      · -- the callee's own view is the thread view
+        refine ⟨_, _, _, _, _, _, _,
+          .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct' hΘf hok' hws' hwc' hcl'
+            hcap' (hsees.of_shape hsh') (PCtx.exists_live_of_shape hplv hsh') hfzo hret hΔf hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb'
+            (Or.inr ⟨htvbE, rfl⟩) (fun v s K'' hv hs hK => ?_), ?_, hXc hF, hsame,
+          fun hne => ⟨rfl, rfl, rfl, hK' hne, hcf⟩, fun h => hKfz (hfzo h)⟩
+        · rw [RPeriphs.set_eq_of_agree hagree]
+          exact hcl v s K'' hv hs (hK.trans hF)
+        · calc _ = (q + Q' K' b) + F' K' * (e.cost M + Δf.bg M + b) + Φc (F' K') := by ring
+            _ ≤ _ := add_le_add (add_le_add hq (mul_le_mul_of_nonneg_right hF zero_le)) (hΦc hF)
+    · -- a nested call: push the new callee on top of this callee
+      obtain ⟨Γ₁, Δ₁, Θ₁, W, Q₁, F₁, Γ₁', Δ₁', Θ₁', Q₂, F₂, hc, hcW, hΓ, hΔ, hΘ, hwsr, hwcr,
+        hrest, rfl, rfl⟩ := hct.cons_inv
+      have hnextc := CtlTyped.next_closed hP hΨc hc hΔ hΘ hclo
+      have hcapc := (hc.capOK hcapo).of_le hΘ hΔ.le
+      have hshc := hΔ.shape_eq.trans hc.shape_eq.1
+      have hw₁ := hc.winShape hws
+      rw [← hc.shape_eq.1, hΔ.le.shape_eq] at hw₁
+      have hamb₁ : Θ₁.AmbOK M := ThreadCtx.AmbOK.of_le hΘ hw₁ hwsr (hrest.ambOK hΘf hwsr)
+      cases hc with
+      | @call _ _ _ _ _ _ _ _ sig S₀ hg hty hx hp hsub₀ hnc hfzs =>
+      cases hstep
+      rename_i dcl v d₁ k₁ s hgd hev hH hD
+      have hpd : p = parg ∧ d₁ = d := by
+        by_cases hp' : p = parg
+        · subst hp'; simp only [↓reduceIte, Option.some.injEq] at hH; exact ⟨rfl, hH.symm⟩
+        · simp [hp'] at hH
+      obtain ⟨rfl, rfl⟩ := hpd
+      obtain ⟨dcl', hd', hfd⟩ := hΨd g sig hg
+      rw [hgd] at hd'; cases hd'
+      obtain ⟨hargTy, hpKind, hsIn, hretTy, hsOut, ⟨Γb, Δb, Wb, Qb, Fb, S'', Sv, hbody, hretT,
+        hΔb, hS'', hWbp, hSv, hcost, hclk⟩, hsInC, _⟩ := hfd
+      have hok₀ := hok
+      obtain ⟨hσ, S, Ae, hC, hR, hS, hb⟩ := hok
+      have hSp := hR.lookup hH hD
+      obtain ⟨rfl, hs⟩ := hS.at hSp hp
+      obtain ⟨v', hev', hvty⟩ := HasTy.eval hσ hty
+      rw [hev] at hev'; cases hev'
+      have hF2 := hrest.mono hM hΨ
+      have hCb := DevEnv.Ceil.callee hcW.1 hp hH hWbp hSv
+      have hInSv : dcl.sIn ⊆ Sv := by
+        have := hbody.le_W.1 dcl.parg
+        rw [Finsupp.single_eq_same, hWbp] at this
+        exact this.2
+      have hsV : s ∈ sig.visit := hSv (hInSv (hsIn ▸ hsub₀ hs))
+      have hqc : Kc * (e₁.cost M + D.bg M + ambBg M Am) ≤ Kc * (e₁.cost M + Δ.bg M + b) := by
+        refine mul_le_mul_left'' ?_
+        rw [add_assoc, add_assoc]
+        exact add_le_add le_rfl (ActOK.bg_le ⟨hσ, S, Ae, hC, hR, hS, hb⟩)
+      have hokb : ActOK M (TCtx.empty.bind dcl.arg dcl.argTy)
+          (Finsupp.single dcl.parg (.live dcl.pKind dcl.sIn)) (b + (Δ.erase p).bg M)
+          (Mem.empty.set dcl.arg v) (fun y => if y = dcl.parg then some d₁ else none) D Am := by
+        refine ⟨MemOK.arg (hargTy ▸ hvty), Finsupp.single dcl.parg (.at sig.pKind s),
+          Ae + (S.erase p).entries, hC.call hSp hD dcl.parg, Rev.call hD, ?_, ?_⟩
+        · rw [← hpKind]; exact PeriphsOK.single (hsIn ▸ hsub₀ hs)
+        · rw [ambBg_add_entries]; exact add_le_add hb (hS.erase p).bg_le
+      have hpot : Kc * (e₁.cost M + D.bg M + ambBg M Am) +
+          ((Qb Kc (b + (Δ.erase p).bg M) + 0) +
+            Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M)) +
+            (Q₂ (Fb Kc) b + F₂ (Fb Kc) * (e.cost M + Δf.bg M + b) + Φc (F₂ (Fb Kc)))) ≤
+          (Kc * (e₁.cost M + Δ.bg M + b) + sig.cost Kc (b + (Δ.erase p).bg M) +
+            Q₂ (sig.clk Kc) b) + F₂ (sig.clk Kc) * (e.cost M + Δf.bg M + b) +
+            Φc (F₂ (sig.clk Kc)) := by
+        rw [hcost, hclk, add_zero]
+        calc _ = Kc * (e₁.cost M + D.bg M + ambBg M Am) + (Qb Kc (b + (Δ.erase p).bg M)
+                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
+                + (Q₂ (Fb Kc) b + F₂ (Fb Kc) * (e.cost M + Δf.bg M + b)
+                  + Φc (F₂ (Fb Kc)))) := by ring
+          _ ≤ Kc * (e₁.cost M + Δ.bg M + b) + (Qb Kc (b + (Δ.erase p).bg M)
+                + Fb Kc * (dcl.ret.cost M + Δb.bg M + (b + (Δ.erase p).bg M))
+                + (Q₂ (Fb Kc) b + F₂ (Fb Kc) * (e.cost M + Δf.bg M + b)
+                  + Φc (F₂ (Fb Kc)))) := add_le_add hqc le_rfl
+          _ = _ := by ring
+      -- the caller's (this callee's) continuation after the nested call
+      have hout : ∀ ev ∈ Vs, ev.dev = d₁ → dcl.sOut ⊆ ev.env := by
+        intro ev hev hed
+        rw [← hsOut]; exact DevEnv.Ceil.call_out hcW.2 hp hH ev hev hed
+      by_cases hΘe : Θ.IsEmpty
+      · -- this callee has no pending threads: the nested callee inherits its thread view
+        have hΘ₁ : Θ₁'.IsEmpty := ThreadCtx.IsEmpty.of_le ((hΘe.observe _).observe _) hΘ
+        have htvbD : ∀ s₁, s₁ ∈ dcl.sOut → ¬ tvb.Θ.IsEmpty →
+            TView.OK M Am tvb (D.set d₁ sig.pKind s₁) := by
+          intro s₁ hs₁ hne
+          obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.1 (hVsS hne)
+          obtain ⟨hdev, p', k', hH', hΔ', _, _⟩ := hVs ev (by rw [hev]; rfl)
+          exact (htvb hne).move hH' hΔ' hD (hout ev (by rw [hev]; rfl) hdev hs₁)
+        have hcont : ∀ v₁ s₁ K₁, v₁.ty = dcl.retTy → s₁ ∈ dcl.sOut → K₁ ≤ Fb Kc →
+            StackOK P M Ψ Am E (⟨σ.set x₁ v₁, fun y => if y = p then some d₁ else none, T,
+              ctlr, some (e, x)⟩ :: ⟨σc, Hc, Tc, ctlc, rc⟩ :: rest) (D.set d₁ sig.pKind s₁) K₁
+              (Q₂ K₁ b + F₂ K₁ * (e.cost M + Δf.bg M + b) + Φc (F₂ K₁)) (Xc (F₂ K₁)) Θ₁' Δ₁' b
+              bb tvb Vs := by
+          intro v₁ s₁ K₁ hv hs₁ hK
+          refine .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hrest hΘf
+            (ActOK.weaken ⟨hσ.bind (hv.trans hretTy.symm), _, Ae, (hC.set hSp hH hD s₁).1,
+              hR.set hC hSp hH hD s₁, hS.set p sig.pKind (by rw [hsOut]; exact hs₁), hb⟩ hΓ
+              hΔ.le) hwsr hwcr hnextc hcapc (hsees.of_shape hshc) (PCtx.exists_live_of_shape hplv hshc) hfzo hret hΔf hsub hΦc hXc hbb
+            hlink hVs hVsS hfzb (htvbD s₁ hs₁) (Or.inl ⟨hΘ₁, rfl⟩)
+            (fun v₂ s₂ K₂ hv₂ hs₂ hK₂ => ?_)
+          rw [RPeriphs.set_set]
+          refine hcl v₂ s₂ K₂ hv₂ hs₂ (hK₂.trans ?_)
+          simp only [hclk]
+          exact hF2.1 hK
+        have hconc : tv.Θ.SameIds tvb.Θ ∧ (¬ tv.Θ.IsEmpty → tvb.b = tv.b ∧ tvb.H = tv.H ∧
+            tvb.T = tv.T) := by
+          rcases htv with ⟨_, rfl⟩ | ⟨htvbE, rfl⟩
+          · exact ⟨ThreadCtx.SameIds.refl _, fun _ => ⟨rfl, rfl, rfl⟩⟩
+          · exact ⟨ThreadCtx.SameIds.of_empty hΘe htvbE, fun h => absurd hΘe h⟩
+        refine ⟨_, _, _, _, _, _, _,
+          .push (Φc := fun K' => Q₂ K' b + F₂ K' * (e.cost M + Δf.bg M + b) + Φc (F₂ K'))
+            (Xc := fun K' => Xc (F₂ K')) (k := sig.pKind) (sOut := dcl.sOut)
+            (Δc := Δ₁') (bc := b) (tvb := tvb) (tvc := tvb) (Vs := Vs) (Vsc := Vs)
+            (.cmd hbody ⟨hCb, DevEnv.Ceil.callee hcW.2 hp hH hWbp hSv⟩ (fun _ _ h => h)
+              (PCtx.Widen.refl _) (ThreadCtx.Le.refl _) ThreadCtx.WinShape.empty
+              ThreadCtx.WinCover.empty
+              (.nil ⟨hCb.mono hbody.le_W.2,
+                (DevEnv.Ceil.callee hcW.2 hp hH hWbp hSv).mono hbody.le_W.2⟩))
+            ThreadCtx.empty_isEmpty hokb ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+            (fun _ => ⟨PCtx.HWClosed.single hsInC, ThreadCtx.SOutClosed.empty⟩)
+            ThreadCtx.CapOK.empty (hsees.callee hH _ _ _) ⟨dcl.pKind, dcl.sIn, by simp⟩ (fun h => hfzs (Or.inl (hfzo h)))
+            hretT (by rw [hpKind]; exact hΔb) hS''
+            (fun _ _ h => add_le_add (add_le_add (hF2.2 _ _ _ _ h le_rfl)
+              (mul_le_mul_of_nonneg_right (hF2.1 h) zero_le)) (hΦc (hF2.1 h)))
+            (fun _ _ h => hXc (hF2.1 h)) (hbb.trans le_self_add) (Or.inl ⟨rfl, rfl⟩)
+            (fun ev hev => by
+              obtain ⟨h1, p', k', h2, h3, h4, h5⟩ := hVs ev hev
+              exact ⟨h1, p', k', h2, h3, h4, h5.trans le_self_add⟩)
+            hVsS (fun h => hfzs (Or.inl (hfzb h))) htvb (Or.inl ⟨ThreadCtx.empty_isEmpty, rfl⟩)
+            hcont, hpot, by simp only [hclk]; exact le_rfl, hconc.1,
+          fun h => ⟨(hconc.2 h).1, (hconc.2 h).2.1, (hconc.2 h).2.2, rfl,
+            fun _ _ _ _ _ => rfl⟩, fun _ => rfl⟩
+      · -- this callee is a spawner: it is suspended, its view with `p` at `visit`
+        obtain ⟨htvbE, rfl⟩ : tvb.Θ.IsEmpty ∧
+            tv = ⟨Θ, Δ, b, fun y => if y = p then some d₁ else none, T⟩ := by
+          rcases htv with ⟨h, _⟩ | h
+          · exact absurd h hΘe
+          · exact h
+        have hws₁ : Θ.WinShape (Δ.set p sig.pKind sig.visit).shape := by
+          rw [PCtx.shape_set_of hp]; exact hws
+        have hambS : (Θ.observe (Δ.set p sig.pKind sig.visit)).AmbOK M :=
+          hamb₁.of_observe (hws₁.observe rfl)
+            ((PCtx.shape_set_of hp _).trans (PCtx.shape_set_of hp _).symm)
+        have hcont : ∀ v₁ s₁ K₁, v₁.ty = dcl.retTy → s₁ ∈ dcl.sOut → K₁ ≤ Fb Kc →
+            StackOK P M Ψ Am E (⟨σ.set x₁ v₁, fun y => if y = p then some d₁ else none, T,
+              ctlr, some (e, x)⟩ :: ⟨σc, Hc, Tc, ctlc, rc⟩ :: rest) (D.set d₁ sig.pKind s₁) K₁
+              (Q₂ K₁ b + F₂ K₁ * (e.cost M + Δf.bg M + b) + Φc (F₂ K₁)) (Xc (F₂ K₁)) Θ₁' Δ₁' b
+              bb ⟨Θ₁', Δ₁', b, fun y => if y = p then some d₁ else none, T⟩ Vs := by
+          intro v₁ s₁ K₁ hv hs₁ hK
+          refine .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hrest hΘf
+            (ActOK.weaken ⟨hσ.bind (hv.trans hretTy.symm), _, Ae, (hC.set hSp hH hD s₁).1,
+              hR.set hC hSp hH hD s₁, hS.set p sig.pKind (by rw [hsOut]; exact hs₁), hb⟩ hΓ
+              hΔ.le) hwsr hwcr hnextc hcapc (hsees.of_shape hshc) (PCtx.exists_live_of_shape hplv hshc) hfzo hret hΔf hsub hΦc hXc hbb
+            hlink hVs hVsS hfzb (fun h => absurd htvbE h) (Or.inr ⟨htvbE, rfl⟩)
+            (fun v₂ s₂ K₂ hv₂ hs₂ hK₂ => ?_)
+          rw [RPeriphs.set_set]
+          refine hcl v₂ s₂ K₂ hv₂ hs₂ (hK₂.trans ?_)
+          simp only [hclk]
+          exact hF2.1 hK
+        refine ⟨_, _, _, _, _, _, _,
+          .push (Φc := fun K' => Q₂ K' b + F₂ K' * (e.cost M + Δf.bg M + b) + Φc (F₂ K'))
+            (Xc := fun K' => Xc (F₂ K')) (k := sig.pKind) (sOut := dcl.sOut)
+            (Δc := Δ₁') (bc := b)
+            (tvb := ⟨Θ.observe (Δ.set p sig.pKind sig.visit), Δ.set p sig.pKind sig.visit,
+              b, fun y => if y = p then some d₁ else none, T⟩)
+            (tvc := ⟨Θ₁', Δ₁', b, fun y => if y = p then some d₁ else none, T⟩)
+            (Vs := some ⟨d₁, sig.visit, ∅⟩) (Vsc := Vs)
+            (.cmd hbody ⟨hCb, DevEnv.Ceil.visit hWbp hSv⟩ (fun _ _ h => h) (PCtx.Widen.refl _)
+              (ThreadCtx.Le.refl _) ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+              (.nil ⟨hCb.mono hbody.le_W.2, (DevEnv.Ceil.visit hWbp hSv).mono hbody.le_W.2⟩))
+            ThreadCtx.empty_isEmpty hokb ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
+            (fun _ => ⟨PCtx.HWClosed.single hsInC, ThreadCtx.SOutClosed.empty⟩)
+            ThreadCtx.CapOK.empty (hsees.callee hH _ _ _) ⟨dcl.pKind, dcl.sIn, by simp⟩ (fun h => hfzs (Or.inl (hfzo h)))
+            hretT (by rw [hpKind]; exact hΔb) hS''
+            (fun _ _ h => add_le_add (add_le_add (hF2.2 _ _ _ _ h le_rfl)
+              (mul_le_mul_of_nonneg_right (hF2.1 h) zero_le)) (hΦc (hF2.1 h)))
+            (fun _ _ h => hXc (hF2.1 h)) (hbb.trans le_self_add)
+            (Or.inr ⟨rfl, rfl, rfl, rfl,
+              (ThreadCtx.SameIds.observe _ _).trans (ThreadCtx.SameIds.of_le hΘ)⟩)
+            ?_ (fun _ => rfl) (fun _ => hfzs (Or.inr hΘe))
+            (fun _ => ⟨⟨Γ, σ, hok₀.retype hH hD hsV⟩, hws₁.observe rfl,
+              ThreadCtx.WinCover.observe_self hws₁, (hcapo.set hnc _ _).observe _, hambS⟩)
+            (Or.inl ⟨ThreadCtx.empty_isEmpty, rfl⟩) hcont, hpot, by simp only [hclk]; exact le_rfl,
+          ThreadCtx.SameIds.observe _ _, fun _ => ⟨rfl, rfl, rfl, rfl, fun _ _ _ _ _ => rfl⟩,
+          fun _ => rfl⟩
+        intro ev hev
+        simp only [Option.mem_def, Option.some.injEq] at hev; subst hev
+        exact ⟨rfl, p, sig.pKind, by simp, by simp,
+          fun hc' => hnc (ThreadCtx.captures_of_observe hc'), by rw [PCtx.erase_set_self]⟩
+
 /-! ### Configuration typing -/
 
-/-- **A pending thread is accounted for.**  The thread named `t` in the running `main`
-activation `a`, of type `th`, is reached through `a`'s thread-id map; its pool entry captured
+/-- **A pending thread is accounted for.**  The thread named `t` of the spawner (thread view
+with ambient bound `b`, handle map `H`, thread-id map `T`), of type `th`, is reached through `T`; its pool entry captured
 the device of `th.p` (which the body names by the same handle), and, by status:
 
 * `pending`: the device is in a state of a hardware-closed set `S₀` from which the body is typed
@@ -1471,14 +1855,15 @@ the device of `th.p` (which the body names by the same handle), and, by status:
   contribution is the stack's potential.
 * `done`: the device rests in a stable state of `th.sOut`; it contributes nothing.
 
-`b` is `main`'s ambient bound; it does not change while threads are pending
+`b`, `H` and `T` are the spawner's; they do not change while threads are pending
 (`StackOK.step`). -/
 def ThreadOK (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
     (Am : Multiset (K × St)) (tsegs : List (Seg St R))
-    (pool : ThreadId → Option (PoolEntry St R)) (D : RPeriphs K St) (Kc b : R) (a : Act St R)
-    (t : Var) (th : ThreadTy K St R) (φ : R) : Prop :=
+    (pool : ThreadId → Option (PoolEntry St R)) (D : RPeriphs K St) (Kc b : R)
+    (H : Var → Option Dev) (T : Var → Option ThreadId) (t : Var) (th : ThreadTy K St R) (φ : R) :
+    Prop :=
   (∀ s ∈ th.sOut, P.stable th.k s) ∧ P.hwClose th.k th.V = th.V ∧
-  ∃ id e, a.T t = some id ∧ pool id = some e ∧ a.H th.p = some e.dev ∧ e.p = th.p ∧
+  ∃ id e, T t = some id ∧ pool id = some e ∧ H th.p = some e.dev ∧ e.p = th.p ∧
     match e.status with
     | .pending => ∃ (S₀ : Finset St) (s : St) (Γc Γb : TCtx K) (Δb Wb : PCtx K St)
         (Qa : R → R → R) (Fa : R → R) (Sout Wp : Finset St),
@@ -1488,20 +1873,20 @@ def ThreadOK (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
         Δb th.p = .live th.k Sout ∧ Sout ⊆ th.sOut ∧ Wb th.p = .live th.k Wp ∧ Wp ⊆ th.V ∧
         φ = Qa Kc (b + th.amb)
     | .running => ∃ (acts : List (Act St R)) (Φt Xt : R) (Θt : ThreadCtx K St R)
-        (Δt : PCtx K St) (bt : R),
+        (Δt : PCtx K St) (bt : R) (tvt : TView K St R) (Vst : Option (DevEnv St)),
         tsegs.filter (fun sg => sg.owner = some id) = [⟨some id, acts⟩] ∧
         StackOK P M Ψ Am (some ⟨e.dev, th.V, th.sOut⟩) acts D Kc Φt Xt Θt Δt bt
-          (b + th.amb) ∧
-        Θt.IsEmpty ∧ φ = Φt
+          (b + th.amb) tvt Vst ∧
+        tvt.Θ.IsEmpty ∧ φ = Φt
     | .done => ∃ s, D e.dev = .at th.k s ∧ s ∈ th.sOut ∧ P.stable th.k s ∧ φ = 0
 
-/-- **Typed machine configurations, with potential `Φ`** (staged: every pending thread belongs
-to `main`'s running activation, see the STAGING RESTRICTION on T-Call).
+/-- **Typed machine configurations, with potential `Φ`.**  Every pending thread belongs to
+`main`'s spawner (its thread view `tv`, possibly suspended below frozen callees).
 
 * The segments are the thread segments `tsegs` above `main`'s segment; `main`'s activations
   `a :: ma` (running activation `a`) form a typed stack with no device envelope, with view
-  `Θ Δ b`, potential `Φm`.
-* `tids` lists exactly the pending threads of `Θ`; each is accounted for (`ThreadOK`) with a
+  `Θ Δ b`, thread view `tv`, potential `Φm`.
+* `tids` lists exactly the pending threads of `tv.Θ`; each is accounted for (`ThreadOK`) with a
   contribution `φ t`; distinct names reach distinct runtime ids.
 * Every thread segment belongs to a running thread of `tids`, and every pool entry is reached
   from `tids` (no stray entry whose device hardware could still move).
@@ -1514,33 +1899,35 @@ moving (within their envelopes) is a lemma of the step proof, not part of the in
 def CfgTyped (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
     (Am : Multiset (K × St)) (c : Config K St R) (Φ : R) : Prop :=
   ∃ (tsegs : List (Seg St R)) (a : Act St R) (ma : List (Act St R)) (Φm Xm : R)
-    (Θ : ThreadCtx K St R) (Δ : PCtx K St) (b bm : R) (tids : Finset Var) (φ : Var → R),
+    (Θ : ThreadCtx K St R) (Δ : PCtx K St) (b bm : R) (tv : TView K St R)
+    (Vs : Option (DevEnv St)) (tids : Finset Var) (φ : Var → R),
     c.segs = tsegs ++ [⟨none, a :: ma⟩] ∧
-    StackOK P M Ψ Am none (a :: ma) c.D c.K Φm Xm Θ Δ b bm ∧
-    (∀ t, t ∈ tids ↔ Θ t ≠ none) ∧
-    (∀ t ∈ tids, ∀ th, Θ t = some th → ThreadOK P M Ψ Am tsegs c.pool c.D c.K b a t th (φ t)) ∧
-    (∀ t₁ ∈ tids, ∀ t₂ ∈ tids, a.T t₁ = a.T t₂ → t₁ = t₂) ∧
-    (∀ sg ∈ tsegs, ∃ t ∈ tids, ∃ id e, a.T t = some id ∧ sg.owner = some id ∧
+    StackOK P M Ψ Am none (a :: ma) c.D c.K Φm Xm Θ Δ b bm tv Vs ∧
+    (∀ t, t ∈ tids ↔ tv.Θ t ≠ none) ∧
+    (∀ t ∈ tids, ∀ th, tv.Θ t = some th →
+      ThreadOK P M Ψ Am tsegs c.pool c.D c.K tv.b tv.H tv.T t th (φ t)) ∧
+    (∀ t₁ ∈ tids, ∀ t₂ ∈ tids, tv.T t₁ = tv.T t₂ → t₁ = t₂) ∧
+    (∀ sg ∈ tsegs, ∃ t ∈ tids, ∃ id e, tv.T t = some id ∧ sg.owner = some id ∧
       c.pool id = some e ∧ e.status = .running) ∧
-    (∀ id e, c.pool id = some e → ∃ t ∈ tids, a.T t = some id) ∧
+    (∀ id e, c.pool id = some e → ∃ t ∈ tids, tv.T t = some id) ∧
     SegsNoAwait tsegs ∧ ActsNoAwait ma ∧ CtlNoAwait a.ctl.tail ∧
-    (∀ tid id rem fb, a.ctl.head? = some (.awaitW tid id rem fb) → a.T tid = some id) ∧
+    (∀ tid id rem fb, a.ctl.head? = some (.awaitW tid id rem fb) → tv.T tid = some id) ∧
     Φ = Φm + ∑ t ∈ tids, φ t
 
-omit [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- **A thread-free configuration is typed by its `main` stack alone**: with no pending
 threads, an empty pool and only `main`'s segment, `CfgTyped` reduces to `StackOK` (with no
 device envelope), and the potential is `main`'s.  This is the shape of the initial
 configuration, and of every configuration of a program that never spawns. -/
 theorem CfgTyped.of_main {c : Config K St R} {a : Act St R} {ma : List (Act St R)}
     {Am : Multiset (K × St)} {Φm Xm : R} {Θ : ThreadCtx K St R} {Δ : PCtx K St} {b bm : R}
+    {tv : TView K St R} {Vs : Option (DevEnv St)}
     (hsegs : c.segs = [⟨none, a :: ma⟩]) (hpool : ∀ id, c.pool id = none)
-    (hΘ : Θ.IsEmpty) (h : StackOK P M Ψ Am none (a :: ma) c.D c.K Φm Xm Θ Δ b bm)
+    (htv : tv.Θ.IsEmpty) (h : StackOK P M Ψ Am none (a :: ma) c.D c.K Φm Xm Θ Δ b bm tv Vs)
     (hcm : ActsNoAwait (a :: ma)) :
     CfgTyped P M Ψ Am c Φm := by
-  refine ⟨[], a, ma, Φm, Xm, Θ, Δ, b, bm, ∅, fun _ => 0, hsegs, h, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-    ?_, ?_, ?_⟩
-  · intro t; simp [hΘ t]
+  refine ⟨[], a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, ∅, fun _ => 0, hsegs, h, ?_, ?_, ?_, ?_, ?_,
+    ?_, ?_, ?_, ?_, ?_⟩
+  · intro t; simp [htv t]
   · intro t ht; simp at ht
   · intro t₁ ht; simp at ht
   · intro sg hsg; simp at hsg
@@ -1554,27 +1941,31 @@ theorem CfgTyped.of_main {c : Config K St R} {a : Act St R} {ma : List (Act St R
 
 /-! ### Stacks survive a visible device moving within the typing -/
 
-omit [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
-/-- **A typed stack survives its running activation's device moving within the typing.**  If
-the running activation sees device `c` through handle `x`, typed `x : k{V}`, then moving `c` to
-any state of `V` keeps the stack typed, with the same potential and view.  The running layer's
-agreement moves with it (`ActOK.move`); a called function's continuation clause already ranges
-over every final state of the callee's device, which is `c` itself.
+/-- Setting two different devices commutes. -/
+theorem RPeriphs.set_comm (D : RPeriphs K St) {c d : Dev} (h : c ≠ d) (k k' : K) (s s' : St) :
+    (D.set c k s).set d k' s' = (D.set d k' s').set c k s := by
+  ext y; simp only [RPeriphs.set_apply]; split_ifs with h₁ h₂ <;> first | rfl | (subst h₁; subst h₂; exact absurd rfl h)
 
-This is how the `main` stack absorbs moves of the devices its pending threads captured (by the
-threads, or by hardware): the captured handle's set contains the device's envelope. -/
+/-- **A thread-free stack survives its running activation's device moving within the
+typing.**  If the running activation sees device `c` through handle `x`, typed `x : k{V}`, then
+moving `c` to any state of `V` keeps the stack typed, with the same potential and view.  The
+running layer's agreement moves with it (`ActOK.move`); a called function's continuation clause
+already ranges over every final state of the callee's device, which is `c` itself.  Used for
+hardware moving a running thread's own device. -/
 theorem StackOK.move {E : Option (DevEnv St)} {Am : Multiset (K × St)}
-    {as D Kc Φ X Θ Δ b bb} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb) {a : Act St R}
+    {as D Kc Φ X Θ Δ b bb tv Vs} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs)
+    (htvE : tv.Θ.IsEmpty) {a : Act St R}
     (ha : as.head? = some a) {x : Var} {c : Dev} {k : K} {V : Finset St} {s' : St}
     (hH : a.H x = some c) (hΔ : Δ x = .live k V) (hs' : s' ∈ V) :
-    StackOK P M Ψ Am E as (D.set c k s') Kc Φ X Θ Δ b bb := by
+    StackOK P M Ψ Am E as (D.set c k s') Kc Φ X Θ Δ b bb tv Vs := by
   cases h with
   | base hct hex hΘf hok hws hwc hclo hcapo hsees hfzo =>
     simp only [List.head?_cons, Option.some.injEq] at ha
     subst ha
     exact .base hct hex hΘf (hok.move hH hΔ hs') hws hwc hclo hcapo hsees hfzo
   | @push σ parg d T ctl e x' σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k' S' sOut
-      Φc Xc Θc Δc bc bb hct hΘf hok hws hwc hclo hcapo hsees hfzo hret hΔf hsub hΦc hXc hΘc hbb hcl =>
+      Φc Xc Θc Δc bc bb tv tvb tvc Vs Vsc hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf
+      hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb htv hcl =>
     simp only [List.head?_cons, Option.some.injEq] at ha
     subst ha
     have hcd : c = d := by
@@ -1582,14 +1973,18 @@ theorem StackOK.move {E : Option (DevEnv St)} {Am : Multiset (K × St)}
       · simp only [hx, ↓reduceIte, Option.some.injEq] at hH; exact hH.symm
       · simp [hx] at hH
     subst hcd
-    refine .push (Δc := Δc) (bc := bc) hct hΘf (hok.move hH hΔ hs') hws hwc hclo hcapo hsees hfzo hret hΔf hsub hΦc hXc hΘc hbb
-      (fun v s K' hv hs hK => ?_)
+    have htvbE : tvb.Θ.IsEmpty := by
+      rcases htv with ⟨_, rfl⟩ | ⟨h, _⟩
+      · exact htvE
+      · exact h
+    refine .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct hΘf (hok.move hH hΔ hs')
+      hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc hbb hlink hVs hVsS hfzb
+      (fun h => absurd htvbE h) htv (fun v s K' hv hs hK => ?_)
     rw [RPeriphs.set_set]
     exact hcl v s K' hv hs hK
 
 /-! ### Thread stacks survive devices they cannot see changing -/
 
-omit [OrderBot R] [IsOrderedRing R] [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
 /-- **A thread layer's agreement survives every device it cannot see changing.**  The layer
 sees only `dev`, through a live handle, so its visible part is exactly `dev`'s entry and its
 ambient is exactly "every other device, plus the outer ambient" — whatever states those are
@@ -1637,41 +2032,121 @@ theorem ActOK.foreign {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem} {H : Var
     exact hR y _ hd'' hne
   · rw [ambBg_pop]; exact hamb
 
-omit [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- **A thread's stack survives every device it cannot see changing** (the ambient lemma).
 Every layer of a thread stack sees only the thread's device (`DevEnv.Sees`); if that device is
 unchanged and every other device, plus the outer ambient, fits the stack's *bottom* ambient
 bound `bb` (every layer's bound is at least `bb`), the stack is typed at the new store with the
 same potential and view.  Callers' continuation clauses range over the device's final state,
-which commutes with the change.
+which commutes with the change.  (A thread stack has no pending threads.)
 
 This is what keeps a running or preempted thread typed while another thread, or hardware, moves
 other devices: the condition is supplied by the spawner's window cover and the declared bound
 `cost(win ∖ p) ≤ amb`, with `bb = b + amb`. -/
-theorem StackOK.foreign {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X Θ Δ b bb}
-    (h : StackOK P M Ψ Am (some e) as D Kc Φ X Θ Δ b bb) {D' : RPeriphs K St}
-    (hdev : D' e.dev = D e.dev) (hamb : (D'.erase e.dev).bg M + ambBg M Am ≤ bb) :
-    StackOK P M Ψ Am (some e) as D' Kc Φ X Θ Δ b bb := by
+theorem StackOK.foreign {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am (some e) as D Kc Φ X Θ Δ b bb tv Vs) {D' : RPeriphs K St}
+    (hdev : D' e.dev = D e.dev) (hamb : (D'.erase e.dev).bg M + ambBg M Am ≤ bb)
+    (htvE : tv.Θ.IsEmpty) :
+    StackOK P M Ψ Am (some e) as D' Kc Φ X Θ Δ b bb tv Vs := by
   induction h generalizing D' with
   | base hct hex hΘf hok hws hwc hclo hcapo hsees hfzo =>
     obtain ⟨hH, hlive⟩ := hsees e rfl
     exact .base hct hex hΘf (hok.foreign hH hlive hdev hamb) hws hwc hclo hcapo hsees hfzo
   | @push σ parg d T ctl e' x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut
-      Φc Xc Θc Δc bc bb hct hΘf hok hws hwc hclo hcapo hsees hfzo hret hΔf hsub hΦc hXc hΘc hbb hcl
-      ih =>
+      Φc Xc Θc Δc bc bb tv tvb tvc Vs Vsc hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf
+      hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb htv hcl ih =>
     obtain ⟨hH, hlive⟩ := hsees e rfl
     have hd : d = e.dev := hH parg d (by simp)
     subst hd
-    refine .push (Δc := Δc) (bc := bc) hct hΘf (hok.foreign hH hlive hdev (hamb.trans hbb))
-      hws hwc hclo hcapo hsees hfzo hret hΔf hsub hΦc hXc hΘc hbb (fun v s K' hv hs hK => ?_)
-    refine ih v s K' hv hs hK ?_ ?_
+    have htvbE : tvb.Θ.IsEmpty := by
+      rcases htv with ⟨_, rfl⟩ | ⟨h, _⟩
+      · exact htvE
+      · exact h
+    have htvcE : tvc.Θ.IsEmpty := by
+      rcases hlink with ⟨rfl, _⟩ | ⟨rfl, _, _, _, hs⟩
+      · exact htvbE
+      · exact fun t => ((hs t).1).1 (htvbE t)
+    refine .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct hΘf
+      (hok.foreign hH hlive hdev (hamb.trans hbb)) hws hwc hclo hcapo hsees hplv hfzo hret hΔf
+      hsub hΦc hXc hbb hlink hVs hVsS hfzb (fun h => absurd htvbE h) htv
+      (fun v s K' hv hs hK => ?_)
+    refine ih v s K' hv hs hK ?_ ?_ htvcE
     · simp [RPeriphs.set_apply]
     · rw [RPeriphs.erase_set]; exact hamb
 
+/-- **A stack survives a pending thread's device moving within the thread's envelope** (by
+the thread, or by hardware).  The spawner sees the device through the captured handle, typed at
+a superset of the envelope (`CapOK`), whether it is running or suspended under callees (its
+suspended agreement moves too).  The callees above a suspended spawner cannot see the device;
+their agreement is re-established from the spawner's (`ActOK.foreign`, its ambient within the
+callee's bound).  The callers' continuation clauses commute with the move. -/
+theorem StackOK.move_tv {E : Option (DevEnv St)} {Am : Multiset (K × St)}
+    {as D Kc Φ X Θ Δ b bb tv Vs} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs) :
+    ∀ {t : Var} {th : ThreadTy K St R} {c : Dev} {s' : St}, tv.Θ t = some th →
+      tv.H th.p = some c → s' ∈ th.V →
+      StackOK P M Ψ Am E as (D.set c th.k s') Kc Φ X Θ Δ b bb tv Vs := by
+  induction h with
+  | base hct hex hΘf hok hws hwc hclo hcapo hsees hfzo =>
+    intro t th c s' ht hH hs'
+    obtain ⟨V', hV', hVV'⟩ := hcapo.1 t th ht
+    exact .base hct hex hΘf (hok.move hH hV' (hVV' hs')) hws hwc hclo hcapo hsees hfzo
+  | @push σ parg d T ctl e x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut
+      Φc Xc Θc Δc bc bb tv tvb tvc Vs Vsc hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf
+      hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb htv hcl ih =>
+    intro t th c s' ht hH hs'
+    rcases htv with ⟨hΘe, rfl⟩ | ⟨htvbE, rfl⟩
+    · -- a suspended spawner below: move its agreement, re-establish the callee's
+      have hne : ¬ tv.Θ.IsEmpty := fun h => by rw [h t] at ht; cases ht
+      obtain ⟨⟨Γs, σs, hoks⟩, hwss, hwcs, hcaps, hambs⟩ := htvb hne
+      obtain ⟨V', hV', hVV'⟩ := hcaps.1 t th ht
+      obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.1 (hVsS hne)
+      obtain ⟨hdev, p', k', hH', hΔ', hnc', hchain⟩ := hVs ev (by rw [hev]; rfl)
+      have hcd : c ≠ d := hoks.dev_ne_free hcaps ht hΔ' hnc' hH hH'
+      obtain ⟨_, Sx, _, hCx, _, hSx, _⟩ := hoks
+      obtain ⟨s₀, hSp, _⟩ := hSx.live hV'
+      obtain ⟨c', hc', hDc⟩ := hCx.lookup hSp
+      rw [hH] at hc'; cases hc'
+      have htvb' : TView.OK M Am tv (D.set c th.k s') :=
+        (htvb hne).move hH hV' hDc (hVV' hs')
+      obtain ⟨Γs', σs', hoks'⟩ := htvb'.1
+      have hamb' := hoks'.bg_erase_le hH' hΔ'
+      refine .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct hΘf
+        (hok.foreign (dev := d) (fun y d' hy => ?_) ?_ (by simp [RPeriphs.set_apply, hcd.symm])
+          (hamb'.trans (by rw [add_comm]; exact hchain)))
+        hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc hbb hlink hVs hVsS hfzb
+        (fun _ => htvb') (Or.inl ⟨hΘe, rfl⟩) (fun v s K' hv hs hK => ?_)
+      · by_cases hyp : y = parg
+        · simp only [hyp, ↓reduceIte, Option.some.injEq] at hy; exact hy.symm
+        · simp [hyp] at hy
+      · obtain ⟨k₁, T₁, hT₁⟩ := hplv
+        exact ⟨parg, k₁, T₁, by simp, hT₁⟩
+      · rw [RPeriphs.set_comm _ hcd]
+        rcases hlink with ⟨rfl, rfl⟩ | ⟨rfl, _, hHc, _, hsame⟩
+        · exact ih v s K' hv hs hK ht hH hs'
+        · obtain ⟨th', hth', hsth⟩ : ∃ th', Θc t = some th' ∧ th.Same th' := by
+            rcases e' : Θc t with _ | th'
+            · exact absurd ((hsame t).1.2 e') (by rw [ht]; simp)
+            · exact ⟨th', rfl, (hsame t).2 th th' ht e'⟩
+          obtain ⟨hp, hk, hV, _, _⟩ := hsth
+          have hH₂ : Hc th'.p = some c := by rw [← hHc, ← hp]; exact hH
+          have hs₂ : s' ∈ th'.V := by rw [← hV]; exact hs'
+          have := ih v s K' hv hs hK hth' hH₂ hs₂
+          rwa [← hk] at this
+    · -- the callee is the spawner: its parameter's device is the captured one
+      have hcd : c = d := by
+        by_cases hx : th.p = parg
+        · simp only [hx, ↓reduceIte, Option.some.injEq] at hH; exact hH.symm
+        · simp [hx] at hH
+      subst hcd
+      obtain ⟨V', hV', hVV'⟩ := hcapo.1 t th ht
+      refine .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct hΘf
+        (hok.move hH hV' (hVV' hs')) hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc
+        hbb hlink hVs hVsS hfzb (fun h => absurd htvbE h) (Or.inr ⟨htvbE, rfl⟩)
+        (fun v s K' hv hs hK => ?_)
+      rw [RPeriphs.set_set]
+      exact hcl v s K' hv hs hK
+
 /-! ### 3c, case 1: `main` runs alone -/
 
-omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R]
-  [IsOrderedRing R] [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
 /-- A control stack whose head is a command and whose tail has no waiting `await` has none. -/
 theorem CtlNoAwait.of_head {c : Cmd St R} {ctl : List (Ctl St R)} (h : CtlNoAwait ctl) :
     CtlNoAwait (.cmd c :: ctl) := by
@@ -1680,21 +2155,15 @@ theorem CtlNoAwait.of_head {c : Cmd St R} {ctl : List (Ctl St R)} (h : CtlNoAwai
   · trivial
   · exact h x hx
 
-omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R]
-  [IsOrderedRing R] [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
 /-- No-`await` of a command-headed control stack is no-`await` of its tail. -/
 theorem ctlNoAwait_cmd_cons {c : Cmd St R} {ctl : List (Ctl St R)} :
     CtlNoAwait (.cmd c :: ctl) ↔ CtlNoAwait ctl :=
   ⟨fun h x hx => h x (List.mem_cons_of_mem _ hx), CtlNoAwait.of_head⟩
 
-omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R]
-  [IsOrderedRing R] [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
 /-- The empty control stack has no waiting `await`. -/
 theorem ctlNoAwait_nil : CtlNoAwait ([] : List (Ctl St R)) ↔ True :=
   ⟨fun _ => trivial, fun _ x hx => by simp at hx⟩
 
-omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R]
-  [IsOrderedRing R] [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R] in
 /-- No-`await` of a list of activations, at a cons. -/
 theorem actsNoAwait_cons {a : Act St R} {as : List (Act St R)} :
     ActsNoAwait (a :: as) ↔ CtlNoAwait a.ctl ∧ ActsNoAwait as := by
@@ -1704,8 +2173,6 @@ theorem actsNoAwait_cons {a : Act St R} {as : List (Act St R)} :
   · exact h₁
   · exact h₂ a' ha'
 
-omit [DecidableEq K] [LinearOrder R] [OrderBot R] [IsOrderedRing R] [CanonicallyOrderedAdd R]
-  [Sub R] [OrderedSub R] in
 /-- **Steps of the running activation create no waiting `await`** (they run commands, push a
 callee's body or return to a caller). -/
 theorem ActStep.noAwait {Ψd : FCtx K St R} {A : Multiset (K × St)} {as D Kc q tick as' D' K'}
@@ -1713,44 +2180,42 @@ theorem ActStep.noAwait {Ψd : FCtx K St R} {A : Multiset (K × St)} {as D Kc q 
   cases h <;> simp only [actsNoAwait_cons, ctlNoAwait_cmd_cons, ctlNoAwait_nil, true_and] at hna ⊢ <;>
     tauto
 
-omit [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- A typed stack has at least one activation. -/
 theorem StackOK.cons {E : Option (DevEnv St)} {Am : Multiset (K × St)}
-    {as D Kc Φ X Θ Δ b bb} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb) :
+    {as D Kc Φ X Θ Δ b bb tv Vs} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs) :
     ∃ a ma, as = a :: ma := by
   cases h <;> exact ⟨_, _, rfl⟩
 
-omit [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- **A pending thread stays accounted for while `main` runs alone** (no thread segment): the
-running activation keeps its handle and thread-id maps, the thread's type is the same spawned
-thread (only its window may grow), and the store is unchanged at the thread's device. -/
+spawner's handle and thread-id maps and ambient bound are unchanged, the thread's type is the
+same spawned thread (only its window may grow), and the store is unchanged at its device. -/
 theorem ThreadOK.transfer_main {Am : Multiset (K × St)}
     {pool : ThreadId → Option (PoolEntry St R)} {D D' : RPeriphs K St} {Kc b φ : R}
-    {a a' : Act St R} {t : Var} {th th' : ThreadTy K St R}
-    (h : ThreadOK P M Ψ Am [] pool D Kc b a t th φ) (hT : a'.T = a.T) (hH : a'.H = a.H)
-    (hs : th.Same th') (hD : ∀ d, a.H th.p = some d → D' d = D d) :
-    ThreadOK P M Ψ Am [] pool D' Kc b a' t th' φ := by
+    {H : Var → Option Dev} {T : Var → Option ThreadId} {t : Var} {th th' : ThreadTy K St R}
+    (h : ThreadOK P M Ψ Am [] pool D Kc b H T t th φ) (hs : th.Same th')
+    (hD : ∀ d, H th.p = some d → D' d = D d) :
+    ThreadOK P M Ψ Am [] pool D' Kc b H T t th' φ := by
   obtain ⟨p, k, V, sOut, amb, win⟩ := th
   obtain ⟨p', k', V', sOut', amb', win'⟩ := th'
   obtain ⟨rfl, rfl, rfl, rfl, rfl⟩ := hs
   obtain ⟨hstab, hVc, id, e, hTa, hpe, hHa, hep, hst⟩ := h
   have hDe : D' e.dev = D e.dev := hD _ hHa
-  refine ⟨hstab, hVc, id, e, by rw [hT]; exact hTa, hpe, by rw [hH]; exact hHa, hep, ?_⟩
+  refine ⟨hstab, hVc, id, e, hTa, hpe, hHa, hep, ?_⟩
   revert hst
   rcases e.status with _ | _ | _
   · rintro ⟨S₀, s, Γc, Γb, Δb, Wb, Qa, Fa, Sout, Wp, hDs, hrest⟩
     exact ⟨S₀, s, Γc, Γb, Δb, Wb, Qa, Fa, Sout, Wp, hDe.trans hDs, hrest⟩
-  · rintro ⟨acts, Φt, Xt, Θt, Δt, bt, hf, _⟩
+  · rintro ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, _⟩
     simp at hf
   · rintro ⟨s, hDs, hrest⟩
     exact ⟨s, hDe.trans hDs, hrest⟩
 
 /-- **3c, case 1: a step of `main` alone pays for itself.**  With no thread segment, `main`'s
 running activation takes a local step, a call or a return.  `main`'s stack pays the step
-(`StackOK.step`).  If no thread is pending the rest is vacuous.  Otherwise the step is local to
-the spawning activation: its handle and thread-id maps stay, the clock and ambient bound are
-frozen, the pending threads are the same, and their devices are not touched — so every thread
-stays accounted for with the same contribution. -/
+(`StackOK.step`).  If no thread is pending the rest is vacuous.  Otherwise the spawner (running
+or suspended under frozen callees) keeps its handle and thread-id maps and ambient bound, the
+clock is frozen, the pending threads are the same, and their devices are not touched — so every
+thread stays accounted for with the same contribution. -/
 theorem CfgTyped.step_main (hM : M.WF)
     (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono sig.cost sig.clk) {Ψd : FCtx K St R}
     (hP : P.WF) (hΨc : SigsClosedA P Ψ) (hΨd : SigsDerivedA P M Ψd Ψ)
@@ -1758,8 +2223,8 @@ theorem CfgTyped.step_main (hM : M.WF)
     {as : List (Act St R)} (hseg : c.segs = [⟨none, as⟩]) (htop : TopOK as)
     {q tick as' D' K'} (hstep : ActStep M Ψd Am as c.D c.K q tick as' D' K') :
     ∃ Φ', CfgTyped P M Ψ Am ⟨[⟨none, as'⟩], c.pool, D', K'⟩ Φ' ∧ q + Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
-    hpool, hnaT, hnaM, hnaH, _, rfl⟩ := hc
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist,
+    hown, hpool, hnaT, hnaM, hnaH, _, rfl⟩ := hc
   rw [hseg] at hsegs
   obtain ⟨rfl, rfl⟩ : tsegs = [] ∧ as = a :: ma := by
     cases tsegs with
@@ -1778,18 +2243,21 @@ theorem CfgTyped.step_main (hM : M.WF)
         exact CtlNoAwait.of_head hnaH
     · exact hnaM a' ha'
   have hnaA' := hstep.noAwait hnaA
-  obtain ⟨Φ', X', Θ', Δ', b', hst', hq, _, hsame, hb', hK', hhead, _⟩ :=
+  obtain ⟨Φ', X', Θ', Δ', b', tv', Vs', hst', hq, _, hsame, hrel, _⟩ :=
     hst.step hM hΨ hP hΨc hΨd htop hstep
-  by_cases hΘ : Θ.IsEmpty
+  obtain ⟨a', ma', rfl⟩ := hst'.cons
+  have hna' : ∀ tid id rem fb, a'.ctl.head? = some (.awaitW tid id rem fb) →
+      tv'.T tid = some id := fun _ _ _ _ hh =>
+    (hnaA' a' List.mem_cons_self _ (List.mem_of_mem_head? hh)).elim
+  by_cases hΘ : tv.Θ.IsEmpty
   · -- no pending thread: the threads' part is empty before and after
     have htE : tids = ∅ :=
       Finset.eq_empty_of_forall_notMem fun t ht => (htids t).1 ht (hΘ t)
     subst htE
-    have hΘ' : Θ'.IsEmpty := fun t => ((hsame t).1).1 (hΘ t)
-    obtain ⟨a', ma', rfl⟩ := hst'.cons
+    have hΘ' : tv'.Θ.IsEmpty := fun t => ((hsame t).1).1 (hΘ t)
     refine ⟨Φ' + ∑ t ∈ (∅ : Finset Var), (fun _ => (0 : R)) t,
-      ⟨[], a', ma', Φ', X', Θ', Δ', b', bm, ∅, fun _ => 0, rfl, hst', ?_, ?_, ?_, ?_, ?_, ?_,
-        ?_, ?_, ?_, rfl⟩, ?_⟩
+      ⟨[], a', ma', Φ', X', Θ', Δ', b', bm, tv', Vs', ∅, fun _ => 0, rfl, hst', ?_, ?_, ?_, ?_,
+        ?_, ?_, ?_, ?_, hna', rfl⟩, ?_⟩
     · intro t; simp [hΘ' t]
     · intro t ht; simp at ht
     · intro t ht; simp at ht
@@ -1800,79 +2268,89 @@ theorem CfgTyped.step_main (hM : M.WF)
     · intro sg hsg; simp at hsg
     · intro a'' ha''; exact hnaA' a'' (List.mem_cons_of_mem _ ha'')
     · intro x hx; exact hnaA' a' List.mem_cons_self x (List.mem_of_mem_tail hx)
-    · intro tid id rem fb hh
-      exact (hnaA' a' List.mem_cons_self _ (List.mem_of_mem_head? hh)).elim
     · simp only [Finset.sum_empty, add_zero]; exact hq
-  · -- threads pending: the step is local to the spawning activation
-    obtain ⟨a₀, a', tl, has, rfl, hHa, hTa, hfr⟩ := hhead hΘ
-    obtain ⟨rfl, rfl⟩ := List.cons.inj has
-    obtain rfl := hb' hΘ
-    obtain rfl := hK' hΘ
+  · -- threads pending: the spawner's maps, bound and the threads' devices are unchanged
+    obtain ⟨hb', hH', hT', rfl, hfr⟩ := hrel hΘ
     refine ⟨Φ' + ∑ t ∈ tids, φ t,
-      ⟨[], a', ma, Φ', X', Θ', Δ', b', bm, tids, φ, rfl, hst', ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-        ?_, rfl⟩, ?_⟩
+      ⟨[], a', ma', Φ', X', Θ', Δ', b', bm, tv', Vs', tids, φ, rfl, hst', ?_, ?_, ?_, ?_, ?_, ?_,
+        ?_, ?_, hna', rfl⟩, ?_⟩
     · intro t; rw [htids t]; exact not_congr (hsame t).1
     · intro t ht th' hth'
       obtain ⟨th, hth⟩ := Option.ne_none_iff_exists'.1 ((htids t).1 ht)
-      exact (hthr t ht th hth).transfer_main hTa hHa ((hsame t).2 th th' hth hth')
+      rw [hb', hH', hT']
+      exact (hthr t ht th hth).transfer_main ((hsame t).2 th th' hth hth')
         (fun d hd => hfr t th d hth hd)
     · intro t₁ h₁ t₂ h₂ he
-      exact hdist t₁ h₁ t₂ h₂ (by rwa [hTa] at he)
+      exact hdist t₁ h₁ t₂ h₂ (by rwa [hT'] at he)
     · intro sg hsg; simp at hsg
     · intro id e he
       obtain ⟨t, ht, hT⟩ := hpool id e he
-      exact ⟨t, ht, by rw [hTa]; exact hT⟩
+      exact ⟨t, ht, by rw [hT']; exact hT⟩
     · intro sg hsg; simp at hsg
     · intro a'' ha''; exact hnaA' a'' (List.mem_cons_of_mem _ ha'')
     · intro x hx; exact hnaA' a' List.mem_cons_self x (List.mem_of_mem_tail hx)
-    · intro tid id rem fb hh
-      exact (hnaA' a' List.mem_cons_self _ (List.mem_of_mem_head? hh)).elim
     · rw [← add_assoc]; exact add_le_add hq le_rfl
 
 /-! ### 3c: generic tools for the remaining step cases -/
 
-omit [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
-/-- The current context of a control stack respects its ceiling (its first entry's visited
-context is above it; an empty stack's ceiling premise is on it directly). -/
-theorem CtlTyped.ceil_view (hCd : ∀ W W' : PCtx K St, W'.Le W → C W → C W')
-    {fz Γ Δ Θ ctl Γf Δf Θf Q F} (h : CtlTyped P M Ψ C cl fz Γ Δ Θ ctl Γf Δf Θf Q F) : C Δ := by
-  cases h with
-  | nil hC => exact hC
-  | cmd hc hcW => exact hCd _ _ hc.le_W.1 hcW
-  | awaitW _ _ _ hfb hcW => exact hCd _ _ hfb.le_W.1 hcW
-
-omit [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- **The running layer's facts**: agreement with the store, window cover, captured handles,
 the backward window bound, what it sees, and its ceiling. -/
 theorem StackOK.top {E : Option (DevEnv St)} {Am : Multiset (K × St)} {a : Act St R}
-    {tl D Kc Φ X Θ Δ b bb} (h : StackOK P M Ψ Am E (a :: tl) D Kc Φ X Θ Δ b bb) :
+    {tl D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am E (a :: tl) D Kc Φ X Θ Δ b bb tv Vs) :
     ∃ Γ, ActOK M Γ Δ b a.σ a.H D Am ∧ Θ.WinCover Δ ∧ Θ.CapOK Δ ∧ Θ.AmbOK M ∧
       DevEnv.Sees E a.H Δ ∧ DevEnv.Ceil E a.H Δ ∧
       (E.isSome = true → Δ.HWClosed P ∧ Θ.SOutClosed P) := by
   cases h with
   | base hct _ hΘf hok hws hwc hclo hcapo hsees =>
     exact ⟨_, hok, hwc, hcapo, hct.ambOK hΘf hws, hsees,
-      hct.ceil_view (fun _ _ hle hc => DevEnv.Ceil.mono hc hle), hclo⟩
+      (hct.ceil_view (fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩)).1, hclo⟩
   | push hct hΘf hok hws hwc hclo hcapo hsees =>
     exact ⟨_, hok, hwc, hcapo, hct.ambOK hΘf hws, hsees,
-      hct.ceil_view (fun _ _ hle hc => DevEnv.Ceil.mono hc hle), hclo⟩
+      (hct.ceil_view (fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩)).1, hclo⟩
 
-omit [DecidableEq K] [DecidableEq St] [Sub R] [CanonicallyOrderedAdd R] [OrderedSub R] in
-/-- Everything but one visible device, plus the outer ambient, costs at most the context
-without its handle plus the ambient bound. -/
-theorem ActOK.bg_erase_le {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem}
-    {H : Var → Option Dev} {D : RPeriphs K St} {Am : Multiset (K × St)}
-    (h : ActOK M Γ Δ b σ H D Am) {p : Var} {d : Dev} {k : K} {V : Finset St}
-    (hH : H p = some d) (hΔ : Δ p = .live k V) :
-    (D.erase d).bg M + ambBg M Am ≤ (Δ.erase p).bg M + b := by
-  obtain ⟨_, S, Ae, hC, _, hS, hb⟩ := h
-  obtain ⟨s, hSp, _⟩ := hS.live hΔ
-  obtain ⟨d', hd', hD'⟩ := hC.lookup hSp
-  rw [hH] at hd'; cases hd'
-  rw [← hC.erase_bg M hSp hD']
-  exact add_le_add (hS.erase p).bg_le hb
+/-- **The spawner's view agrees with the store** whenever threads are pending: the running
+layer's own view if it is the spawner, or the suspended spawner's view kept by the callee
+layer above it. -/
+theorem StackOK.tvOK {E : Option (DevEnv St)} {Am : Multiset (K × St)}
+    {as D Kc Φ X Θ Δ b bb tv Vs} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs)
+    (hne : ¬ tv.Θ.IsEmpty) : TView.OK M Am tv D := by
+  cases h with
+  | base hct _ hΘf hok hws hwc _ hcapo =>
+    exact ⟨⟨_, _, hok⟩, hws, hwc, hcapo, hct.ambOK hΘf hws⟩
+  | push hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc hbb hlink hVs
+      hVsS hfzb htvb htv hcl =>
+    rcases htv with ⟨_, rfl⟩ | ⟨_, rfl⟩
+    · exact htvb hne
+    · exact ⟨⟨_, _, hok⟩, hws, hwc, hcapo, hct.ambOK hΘf hws⟩
 
-omit [DecidableEq K] [DecidableEq St] [Sub R] [CanonicallyOrderedAdd R] [OrderedSub R] in
+/-- With no pending threads in the thread view, the running layer has none either. -/
+theorem StackOK.top_empty {E : Option (DevEnv St)} {Am : Multiset (K × St)}
+    {as D Kc Φ X Θ Δ b bb tv Vs} (h : StackOK P M Ψ Am E as D Kc Φ X Θ Δ b bb tv Vs)
+    (hE : tv.Θ.IsEmpty) : Θ.IsEmpty := by
+  cases h with
+  | base => exact hE
+  | push hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc hbb hlink hVs
+      hVsS hfzb htvb htv hcl =>
+    rcases htv with ⟨h, _⟩ | ⟨_, rfl⟩
+    · exact h
+    · exact hE
+
+/-- **When the running layer has pending threads, it is the spawner**: the thread view is its
+own view (callees under a suspended spawner have none). -/
+theorem StackOK.tv_top {E : Option (DevEnv St)} {Am : Multiset (K × St)} {σ : Mem}
+    {H : Var → Option Dev} {T : Var → Option ThreadId} {ctl : List (Ctl St R)}
+    {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am E (⟨σ, H, T, ctl, r⟩ :: tl) D Kc Φ X Θ Δ b bb tv Vs)
+    (hne : ¬ Θ.IsEmpty) : tv = ⟨Θ, Δ, b, H, T⟩ := by
+  cases h with
+  | base => rfl
+  | push hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc hbb hlink hVs
+      hVsS hfzb htvb htv hcl =>
+    rcases htv with ⟨h, _⟩ | ⟨_, rfl⟩
+    · exact absurd h hne
+    · rfl
+
 /-- **The ambient a pending thread will see fits its declared bound**: in the spawner's
 agreement, every device but the thread's own, plus the outer ambient, costs at most
 `cost(Δ ∖ p) + b ≤ cost(win ∖ p) + b ≤ amb + b` (window cover, backward window bound). -/
@@ -1888,8 +2366,6 @@ theorem ActOK.thread_amb {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem}
     _ ≤ th.amb + b := add_le_add (hamb t th ht) le_rfl
     _ = b + th.amb := add_comm _ _
 
-omit [DecidableEq K] [DecidableEq St] [OrderBot R] [Sub R] [IsOrderedRing R]
-  [CanonicallyOrderedAdd R] [OrderedSub R] in
 /-- **Distinct pending threads hold distinct devices**: they capture distinct handles, both
 live, and live handles name distinct devices. -/
 theorem ActOK.dev_ne {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem}
@@ -1907,11 +2383,10 @@ theorem ActOK.dev_ne {Γ : TCtx K} {Δ : PCtx K St} {b : R} {σ : Mem}
   exact hne (hcap.2 t₁ t₂ th₁ th₂ h₁ h₂ (hC.inj th₁.p th₂.p d₁
     (by rw [hS₁]; exact REntry.at_ne_zero) (by rw [hS₂]; exact REntry.at_ne_zero) hH₁ hH₂))
 
-omit [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- **A thread's device is in its envelope**: it is in the running layer's context, which is
 under the stack's ceiling. -/
-theorem StackOK.dev_in_env {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X Θ Δ b bb}
-    (h : StackOK P M Ψ Am (some e) as D Kc Φ X Θ Δ b bb) :
+theorem StackOK.dev_in_env {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am (some e) as D Kc Φ X Θ Δ b bb tv Vs) :
     ∃ k s, D e.dev = .at k s ∧ s ∈ e.env := by
   obtain ⟨a, tl, rfl⟩ := h.cons
   obtain ⟨_, hok, _, _, _, hsees, hceil, _⟩ := h.top
@@ -1922,48 +2397,37 @@ theorem StackOK.dev_in_env {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ
   rw [hx] at hd'; cases hd'
   exact ⟨k, s, hD', hceil e rfl x k T hx hΔx hsT⟩
 
-omit [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- The running layer of a thread stack sees only the thread's device. -/
 theorem StackOK.head_dev {e : DevEnv St} {Am : Multiset (K × St)} {a : Act St R}
-    {tl D Kc Φ X Θ Δ b bb} (h : StackOK P M Ψ Am (some e) (a :: tl) D Kc Φ X Θ Δ b bb) :
+    {tl D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am (some e) (a :: tl) D Kc Φ X Θ Δ b bb tv Vs) :
     ∀ x d, a.H x = some d → d = e.dev := by
   obtain ⟨_, _, _, _, _, hsees, _, _⟩ := h.top
   exact (hsees e rfl).1
 
-omit [DecidableEq K] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R]
-  [CanonicallyOrderedAdd R] [OrderedSub R] in
-/-- **The store after a step of the running activation**: unchanged, or one device it sees
-moved to a new state of the same kind. -/
-theorem ActStep.store {Ψd : FCtx K St R} {A : Multiset (K × St)} {a : Act St R}
-    {as D Kc q tick as' D' K'} (h : ActStep M Ψd A (a :: as) D Kc q tick as' D' K') :
-    D' = D ∨ ∃ x d k s st, a.H x = some d ∧ D d = .at k s ∧ D' = D.set d k st := by
-  cases h with
-  | transition hH hD => exact Or.inr ⟨_, _, _, _, _, hH, hD, rfl⟩
-  | downgrade hH hD => exact Or.inr ⟨_, _, _, _, _, hH, hD, rfl⟩
-  | _ => exact Or.inl rfl
-
-omit [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [Sub R] in
 /-- **Transferring a thread's accounting** to a new configuration: the same spawned thread,
 reached through the same runtime id and handle, its pool entry unchanged, its device unchanged
 unless it is running, and, if running, its stack carried over (by `hrun`) with the same
 potential. -/
 theorem ThreadOK.transfer {Am : Multiset (K × St)} {tsegs tsegs' : List (Seg St R)}
     {pool pool' : ThreadId → Option (PoolEntry St R)} {D D' : RPeriphs K St} {Kc b φ : R}
-    {a a' : Act St R} {t : Var} {th th' : ThreadTy K St R}
-    (h : ThreadOK P M Ψ Am tsegs pool D Kc b a t th φ) (hs : th.Same th')
-    (hT : a'.T t = a.T t) (hH : a'.H th.p = a.H th.p)
-    (hpool : ∀ id, a.T t = some id → pool' id = pool id)
-    (hD : ∀ id e, a.T t = some id → pool id = some e → e.status ≠ .running →
+    {H H' : Var → Option Dev} {T T' : Var → Option ThreadId} {t : Var}
+    {th th' : ThreadTy K St R}
+    (h : ThreadOK P M Ψ Am tsegs pool D Kc b H T t th φ) (hs : th.Same th')
+    (hT : T' t = T t) (hH : H' th.p = H th.p)
+    (hpool : ∀ id, T t = some id → pool' id = pool id)
+    (hD : ∀ id e, T t = some id → pool id = some e → e.status ≠ .running →
       D' e.dev = D e.dev)
-    (hrun : ∀ id e acts Φt Xt Θt Δt bt, a.T t = some id → pool id = some e →
+    (hrun : ∀ id e acts Φt Xt Θt Δt bt tvt Vst, T t = some id → pool id = some e →
       e.status = .running → tsegs.filter (fun sg => sg.owner = some id) = [⟨some id, acts⟩] →
-      StackOK P M Ψ Am (some ⟨e.dev, th.V, th.sOut⟩) acts D Kc Φt Xt Θt Δt bt (b + th.amb) →
-      Θt.IsEmpty →
-      ∃ acts' Xt' Θt' Δt' bt',
+      StackOK P M Ψ Am (some ⟨e.dev, th.V, th.sOut⟩) acts D Kc Φt Xt Θt Δt bt (b + th.amb)
+        tvt Vst →
+      tvt.Θ.IsEmpty →
+      ∃ acts' Xt' Θt' Δt' bt' tvt' Vst',
         tsegs'.filter (fun sg => sg.owner = some id) = [⟨some id, acts'⟩] ∧
         StackOK P M Ψ Am (some ⟨e.dev, th.V, th.sOut⟩) acts' D' Kc Φt Xt' Θt' Δt' bt'
-          (b + th.amb) ∧ Θt'.IsEmpty) :
-    ThreadOK P M Ψ Am tsegs' pool' D' Kc b a' t th' φ := by
+          (b + th.amb) tvt' Vst' ∧ tvt'.Θ.IsEmpty) :
+    ThreadOK P M Ψ Am tsegs' pool' D' Kc b H' T' t th' φ := by
   obtain ⟨p, k, V, sOut, amb, win⟩ := th
   obtain ⟨p', k', V', sOut', amb', win'⟩ := th'
   obtain ⟨rfl, rfl, rfl, rfl, rfl⟩ := hs
@@ -1976,15 +2440,14 @@ theorem ThreadOK.transfer {Am : Multiset (K × St)} {tsegs tsegs' : List (Seg St
     exact ⟨S₀, s, Γc, Γb, Δb, Wb, Qa, Fa, Sout, Wp,
       (hD id e hTa hpe (by rw [hes]; decide)).trans hDs, hrest⟩
   | running =>
-    rintro ⟨acts, Φt, Xt, Θt, Δt, bt, hf, hstk, hΘe, hφ⟩
-    obtain ⟨acts', Xt', Θt', Δt', bt', hf', hstk', hΘe'⟩ :=
-      hrun id e acts Φt Xt Θt Δt bt hTa hpe hes hf hstk hΘe
-    exact ⟨acts', Φt, Xt', Θt', Δt', bt', hf', hstk', hΘe', hφ⟩
+    rintro ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk, hΘe, hφ⟩
+    obtain ⟨acts', Xt', Θt', Δt', bt', tvt', Vst', hf', hstk', hΘe'⟩ :=
+      hrun id e acts Φt Xt Θt Δt bt tvt Vst hTa hpe hes hf hstk hΘe
+    exact ⟨acts', Φt, Xt', Θt', Δt', bt', tvt', Vst', hf', hstk', hΘe', hφ⟩
   | done =>
     rintro ⟨s, hDs, hrest⟩
     exact ⟨s, (hD id e hTa hpe (by rw [hes]; decide)).trans hDs, hrest⟩
 
-omit [OrderedSub R] [Sub R] in
 /-- **Replacing the running layer's control stack** (await frames, spawns): if the new control
 stack is typed from a view reached from the old one — with the same final contexts, no more
 potential (after paying `q`), no later exit, the same shape, and the view invariants — the
@@ -1993,48 +2456,102 @@ map and ambient bound are unchanged; a caller-chosen property `Pr` of the new vi
 through. -/
 theorem StackOK.retop {E : Option (DevEnv St)} {Am : Multiset (K × St)} {σ : Mem}
     {H : Var → Option Dev} {T : Var → Option ThreadId} {ctl : List (Ctl St R)}
-    {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb}
-    (h : StackOK P M Ψ Am E (⟨σ, H, T, ctl, r⟩ :: tl) D Kc Φ X Θ Δ b bb)
+    {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am E (⟨σ, H, T, ctl, r⟩ :: tl) D Kc Φ X Θ Δ b bb tv Vs)
+    (htvp : tv = ⟨Θ, Δ, b, H, T⟩ ∨ tv.Θ.IsEmpty)
     {σ' : Mem} {T' : Var → Option ThreadId} {ctl' : List (Ctl St R)}
     (Pr : R → ThreadCtx K St R → PCtx K St → Prop)
-    (hnew : ∀ {fz Γ Γf Δf Θf Q F},
-      CtlTyped P M Ψ (DevEnv.Ceil E H) E.isSome fz Γ Δ Θ ctl Γf Δf Θf Q F →
+    (hnew : ∀ {C : PCtx K St → Prop} {fz Γ Γf Δf Θf Q F},
+      (∀ W W' : PCtx K St, W'.Le W → C W → C W') →
+      CtlTyped P M Ψ C E.isSome fz Γ Δ Θ ctl Γf Δf Θf Q F →
       ActOK M Γ Δ b σ H D Am → Θ.WinShape Δ.shape → Θ.WinCover Δ → Θ.CapOK Δ →
       (E.isSome = true → Δ.HWClosed P ∧ Θ.SOutClosed P) →
       ∃ q Γ' Δ' Θ' Q' F',
-        CtlTyped P M Ψ (DevEnv.Ceil E H) E.isSome fz Γ' Δ' Θ' ctl' Γf Δf Θf Q' F' ∧
+        CtlTyped P M Ψ C E.isSome fz Γ' Δ' Θ' ctl' Γf Δf Θf Q' F' ∧
         ActOK M Γ' Δ' b σ' H D Am ∧ q + Q' Kc b ≤ Q Kc b ∧ F' Kc ≤ F Kc ∧
         Θ'.WinShape Δ'.shape ∧ Θ'.WinCover Δ' ∧ Θ'.CapOK Δ' ∧ Δ'.shape = Δ.shape ∧
         (E.isSome = true → Δ'.HWClosed P ∧ Θ'.SOutClosed P) ∧ Pr q Θ' Δ') :
-    ∃ q Φ' X' Θ' Δ', StackOK P M Ψ Am E (⟨σ', H, T', ctl', r⟩ :: tl) D Kc Φ' X' Θ' Δ' b bb ∧
-      q + Φ' ≤ Φ ∧ X' ≤ X ∧ Pr q Θ' Δ' := by
+    ∃ q Φ' X' Θ' Δ', StackOK P M Ψ Am E (⟨σ', H, T', ctl', r⟩ :: tl) D Kc Φ' X' Θ' Δ' b bb
+      ⟨Θ', Δ', b, H, T'⟩ Vs ∧ q + Φ' ≤ Φ ∧ X' ≤ X ∧ Pr q Θ' Δ' := by
   cases h with
   | base hct hex hΘf hok hws hwc hclo hcapo hsees hfzo =>
     obtain ⟨q, Γ', Δ', Θ', Q', F', hct', hok', hq, hF, hws', hwc', hcap', hsh, hcl', hpr⟩ :=
-      hnew hct hok hws hwc hcapo hclo
+      hnew (fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩) hct hok hws hwc hcapo hclo
     exact ⟨q, _, _, Θ', Δ', .base hct' hex hΘf hok' hws' hwc' hcl' hcap' (hsees.of_shape hsh) hfzo,
       hq, hF, hpr⟩
   | @push _ parg d _ _ e x σc Hc Tc ctlc rc rest fz Γ Δ Θ Γf Δf Θf Q F b D Kc τ k S' sOut
-      Φc Xc Θc Δc bc bb hct hΘf hok hws hwc hclo hcapo hsees hfzo hret hΔf hsub hΦc hXc hΘc hbb
-      hcl =>
+      Φc Xc Θc Δc bc bb tv tvb tvc Vs Vsc hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf
+      hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb htv hcl =>
+    have htvbE : tvb.Θ.IsEmpty := by
+      rcases htv with ⟨hΘe, rfl⟩ | ⟨h, _⟩
+      · rcases htvp with h | h
+        · rw [h]; exact hΘe
+        · exact h
+      · exact h
     obtain ⟨q, Γ', Δ', Θ', Q', F', hct', hok', hq, hF, hws', hwc', hcap', hsh, hcl', hpr⟩ :=
-      hnew hct hok hws hwc hcapo hclo
-    refine ⟨q, _, _, Θ', Δ', .push (Δc := Δc) (bc := bc) hct' hΘf hok' hws' hwc' hcl' hcap'
-      (hsees.of_shape hsh) hfzo hret hΔf hsub hΦc hXc hΘc hbb
+      hnew (fun _ _ hle hc => ⟨hc.1.mono hle, hc.2.mono hle⟩) hct hok hws hwc hcapo hclo
+    refine ⟨q, _, _, Θ', Δ', .push (Δc := Δc) (bc := bc) (tvc := tvc) (Vsc := Vsc) hct' hΘf hok'
+      hws' hwc' hcl' hcap' (hsees.of_shape hsh) (PCtx.exists_live_of_shape hplv hsh) hfzo hret hΔf
+      hsub hΦc hXc hbb hlink hVs hVsS hfzb htvb (Or.inr ⟨htvbE, rfl⟩)
       (fun v s K'' hv hs hK => hcl v s K'' hv hs (hK.trans hF)), ?_, hXc hF, hpr⟩
     calc _ = (q + Q' Kc b) + F' Kc * (e.cost M + Δf.bg M + b) + Φc (F' Kc) := by ring
       _ ≤ _ := add_le_add (add_le_add hq (mul_le_mul_of_nonneg_right hF zero_le)) (hΦc hF)
 
+/-- A control stack starting with an `await` (command or waiting frame) has pending threads:
+T-Await and waiting frames need the awaited thread to be pending. -/
+theorem CtlTyped.await_ne {C : PCtx K St → Prop} {cl : Bool} {fz Γ Δ Θ} {x : Ctl St R}
+    {ctl : List (Ctl St R)} {Γf Δf Θf Q F}
+    (h : CtlTyped P M Ψ C cl fz Γ Δ Θ (x :: ctl) Γf Δf Θf Q F)
+    (hx : (∃ tid n fb, x = .cmd (.await tid n fb)) ∨ (∃ tid id rem fb, x = .awaitW tid id rem fb)) :
+    ¬ Θ.IsEmpty := by
+  rcases hx with ⟨tid, n, fb, rfl⟩ | ⟨tid, id, rem, fb, rfl⟩
+  · obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hc, _⟩ := h.cons_inv
+    cases hc with
+    | await hth => intro hE; rw [hE] at hth; cases hth
+  · cases h with
+    | awaitW hth => intro hE; rw [hE] at hth; cases hth
+
+/-- **At an `await`, the running activation is the spawner**: its view is the thread view. -/
+theorem StackOK.await_tv {E : Option (DevEnv St)} {Am : Multiset (K × St)} {σ : Mem}
+    {H : Var → Option Dev} {T : Var → Option ThreadId} {x : Ctl St R} {ctl : List (Ctl St R)}
+    {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am E (⟨σ, H, T, x :: ctl, r⟩ :: tl) D Kc Φ X Θ Δ b bb tv Vs)
+    (hx : (∃ tid n fb, x = .cmd (.await tid n fb)) ∨ (∃ tid id rem fb, x = .awaitW tid id rem fb)) :
+    tv = ⟨Θ, Δ, b, H, T⟩ := by
+  refine h.tv_top ?_
+  cases h with
+  | base hct => exact hct.await_ne hx
+  | push hct => exact hct.await_ne hx
+
+/-- **At an `async`, the running activation is the spawner, or no thread is pending**: a callee
+under a suspended spawner is frozen, and T-AsyncFun needs an unfrozen setting. -/
+theorem StackOK.async_tv {E : Option (DevEnv St)} {Am : Multiset (K × St)} {σ : Mem}
+    {H : Var → Option Dev} {T : Var → Option ThreadId} {tid p : Var} {cb : Cmd St R}
+    {ctl : List (Ctl St R)} {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am E (⟨σ, H, T, .cmd (.async tid p cb) :: ctl, r⟩ :: tl) D Kc Φ X Θ Δ b
+      bb tv Vs) :
+    tv = ⟨Θ, Δ, b, H, T⟩ ∨ tv.Θ.IsEmpty := by
+  cases h with
+  | base => exact Or.inl rfl
+  | push hct hΘf hok hws hwc hclo hcapo hsees hplv hfzo hret hΔf hsub hΦc hXc hbb hlink hVs
+      hVsS hfzb htvb htv hcl =>
+    rcases htv with ⟨_, rfl⟩ | ⟨_, rfl⟩
+    · by_cases hE : tv.Θ.IsEmpty
+      · exact Or.inr hE
+      · exfalso
+        obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hc, _⟩ := hct.cons_inv
+        cases hc with
+        | async _ _ _ _ _ _ _ _ _ hfz => rw [hfzb hE] at hfz; cases hfz
+    · exact Or.inl rfl
+
 /-! ### 3c, case 2: `await` frames of `main` -/
 
-omit [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] in
 /-- Splitting a segment list at its last segment (`main`'s). -/
 theorem segs_split {tsegs tsegs₀ : List (Seg St R)} {x y : Seg St R}
     (h : tsegs ++ [x] = tsegs₀ ++ [y]) : tsegs = tsegs₀ ∧ x = y := by
   obtain ⟨h₁, h₂⟩ := List.append_inj' h rfl
   exact ⟨h₁, List.cons.inj h₂ |>.1⟩
 
-omit [DecidableEq K] [OrderBot R] [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] [DecidableEq St] [CommSemiring R] [LinearOrder R] in
 /-- Draining timers when only `main`'s running activation can have a waiting frame (at its
 head): only that head changes. -/
 theorem Config.drain_main {tsegs : List (Seg St R)} {σ : Mem} {H : Var → Option Dev}
@@ -2056,7 +2573,6 @@ theorem Config.drain_main {tsegs : List (Seg St R)} {σ : Mem} {H : Var → Opti
   simp only [List.cons.injEq, Seg.mk.injEq, Act.mk.injEq, true_and, and_true] at hA'
   rw [hA'.1, hA'.2]
 
-omit [CommSemiring R] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] in
 /-- A thread of the context after an `await` (and its link) is a thread of the context before,
 other than the awaited one, the same spawned thread. -/
 theorem ThreadCtx.after_await_some {Θ Θf Θ' : ThreadCtx K St R} {tid : Var} {Δo : PCtx K St}
@@ -2068,7 +2584,6 @@ theorem ThreadCtx.after_await_some {Θ Θf Θ' : ThreadCtx K St R} {tid : Var} {
   obtain ⟨ha, hne⟩ := ThreadCtx.erase_some ha₀
   exact ⟨hne, a₀, ha, (ThreadTy.Same.refl a₀).trans hbs⟩
 
-omit [CommSemiring R] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] in
 /-- Every other pending thread is still pending after an `await` (and its link). -/
 theorem ThreadCtx.after_await_ne {Θ Θf Θ' : ThreadCtx K St R} {tid : Var} {Δo : PCtx K St}
     (hle : (((Θ.erase tid).observe Δo).join Θf).Le Θ') (hs : (Θ.erase tid).SameThreads Θf)
@@ -2082,7 +2597,6 @@ theorem ThreadCtx.after_await_ne {Θ Θf Θ' : ThreadCtx K St R} {tid : Var} {Δ
     · simp [ThreadCtx.join, ThreadCtx.observe, e₁, e₂]
   exact fun h' => hj (((ThreadCtx.SameIds.of_le hle) t).1.2 h')
 
-omit [CommSemiring R] [LinearOrder R] [OrderBot R] [Sub R] [IsOrderedRing R] [CanonicallyOrderedAdd R] [OrderedSub R] in
 /-- `CapOK` after an `await` (the computation of `TypedA.capOK`'s `await` case). -/
 theorem ThreadCtx.CapOK.await_out {Θ Θf : ThreadCtx K St R} {Δ Δf : PCtx K St}
     (hcap : Θ.CapOK Δ) {tid : Var} {th : ThreadTy K St R} (hth : Θ tid = some th)
@@ -2095,7 +2609,6 @@ theorem ThreadCtx.CapOK.await_out {Θ Θf : ThreadCtx K St R} {Δ Δf : PCtx K S
     exact hne (hcap.2 t' tid th' th ht'' hth hp')
   exact (((hcap.erase tid).set hnc _ _).observe _).join hf (hs.observe_left _)
 
-omit [Sub R] [OrderedSub R] in
 /-- **`awaitStart` changes no potential**: the `await` command becomes a waiting frame with
 nothing elapsed, typed by the same premises with the same summary. -/
 theorem CfgTyped.awaitStart {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
@@ -2107,30 +2620,31 @@ theorem CfgTyped.awaitStart {Am : Multiset (K × St)} {c : Config K St R} {Φ : 
     ∃ Φ', CfgTyped P M Ψ Am
       ⟨[⟨none, ⟨σ, H, T, .awaitW tid id (n : R) fb :: rest, r⟩ :: as⟩], c.pool, c.D, c.K⟩ Φ' ∧
       Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, _, rfl⟩ := hc
   rw [hseg, ← List.nil_append [_]] at hsegs
   obtain ⟨rfl, hseq⟩ := segs_split hsegs
   simp only [Seg.mk.injEq, List.cons.injEq, true_and] at hseq
   obtain ⟨rfl, rfl⟩ := hseq
-  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl⟩ := hst.retop
+  obtain rfl := hst.await_tv (Or.inl ⟨_, _, _, rfl⟩)
+  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl⟩ := hst.retop (Or.inl rfl)
     (σ' := σ) (T' := T) (ctl' := .awaitW tid id (n : R) fb :: rest)
     (fun q Θ' Δ' => q = 0 ∧ Θ' = Θ ∧ Δ' = Δ) (by
-      intro fz Γ Γf Δf Θf Q F hct hok hws hwc hcap hcl
+      intro C fz Γ Γf Δf Θf Q F hCd hct hok hws hwc hcap hcl
       obtain ⟨Γ₁, Δ₁, Θ₁, W, Q₁, F₁, Γ₁', Δ₁', Θ₁', Q₂, F₂, hc, hcW, hΓ, hΔ, hΘ, hws', hwc',
         hrest, rfl, rfl⟩ := hct.cons_inv
       cases hc with
       | @await _ _ _ _ _ _ _ th Γa Δa Θa Wa Qa Fa Sa hth hp hamb hfb hs hΔf hstab =>
         have hsh : (Δ.join (Δ.set th.p th.k th.sOut)).shape = Wa.shape :=
           (PCtx.shape_join (PCtx.shape_set_of hp _).symm).trans hfb.shape_eq.2.symm
-        refine ⟨0, Γ, Δ, Θ, _, _, .awaitW hth hp hamb hfb (hcW.mono (PCtx.le_join_right hsh))
+        refine ⟨0, Γ, Δ, Θ, _, _, .awaitW hth hp hamb hfb (hCd _ _ (PCtx.le_join_right hsh) hcW)
           hs hΔf hstab hΓ hΔ hΘ hws' hwc' hrest, hok, ?_, le_rfl, hws, hwc, hcap, rfl, hcl,
           rfl, rfl, rfl⟩
         simp only [zero_add]
         exact add_le_add (add_le_add (mul_le_mul_of_nonneg_right waitAllow_le zero_le) le_rfl)
           le_rfl)
-  refine ⟨Φ' + ∑ t ∈ tids, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, tids, φ, rfl, hst', htids,
-    fun t ht th hth => (hthr t ht th hth).transfer_main rfl rfl (ThreadTy.Same.refl _)
+  refine ⟨Φ' + ∑ t ∈ tids, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, _, Vs, tids, φ, rfl, hst', htids,
+    fun t ht th hth => (hthr t ht th hth).transfer_main (ThreadTy.Same.refl _)
       (fun _ _ => rfl), hdist, hown, hpool, hnaT, hnaM, hnaH, ?_, rfl⟩, ?_⟩
   · intro tid' id' rem' fb' hh
     simp only [List.head?_cons, Option.some.injEq] at hh
@@ -2151,19 +2665,20 @@ theorem CfgTyped.awaitWait {Am : Multiset (K × St)} {c : Config K St R} {Φ : R
     (hpos : 0 < rem) :
     ∃ Φ', CfgTyped P M Ψ Am (Config.drain c.K ⟨c.segs, c.pool, c.D, c.K⟩) Φ' ∧
       c.K * (c.D.bg M + ambBg M Am) + Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   have hseg' := hseg
   rw [hseg, ← List.nil_append [_]] at hsegs
   obtain ⟨rfl, hseq⟩ := segs_split hsegs
   simp only [Seg.mk.injEq, List.cons.injEq, true_and] at hseq
   obtain ⟨rfl, rfl⟩ := hseq
+  obtain rfl := hst.await_tv (Or.inr ⟨_, _, _, _, rfl⟩)
   rw [hseg', ← List.nil_append [_], Config.drain_main (rest := rest) (fun _ h => by simp at h)
     (by simpa using hnaH) hnaM]
-  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl⟩ := hst.retop
+  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl⟩ := hst.retop (Or.inl rfl)
     (σ' := σ) (T' := T) (ctl' := .awaitW tid id (rem - c.K) fb :: rest)
     (fun q Θ' Δ' => q = c.K * (c.D.bg M + ambBg M Am) ∧ Θ' = Θ ∧ Δ' = Δ) (by
-      intro fz Γ Γf Δf Θf Q F hct hok hws hwc hcap hcl
+      intro C fz Γ Γf Δf Θf Q F hCd hct hok hws hwc hcap hcl
       cases hct with
       | @awaitW _ _ _ _ _ _ _ th Γa Δa Θa Wa Qa Fa Sa Γ₁' Δ₁' Θ₁' _ Γ₂ Δ₂ Θ₂ Q₂ F₂
           hth hp hamb hfb hCf hs hΔf hstab hΓ hΔ hΘ hws' hwc' hrest =>
@@ -2185,8 +2700,8 @@ theorem CfgTyped.awaitWait {Am : Multiset (K × St)} {c : Config K St R} {Φ : R
                 Q₂ (max (Fa c.K) c.K) b := by ring
           _ ≤ _ := add_le_add (add_le_add (mul_le_mul_of_nonneg_right htick zero_le) le_rfl)
                 le_rfl)
-  refine ⟨Φ' + ∑ t ∈ tids, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, tids, φ, rfl, hst', htids,
-    fun t ht th hth => (hthr t ht th hth).transfer_main rfl rfl (ThreadTy.Same.refl _)
+  refine ⟨Φ' + ∑ t ∈ tids, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, _, Vs, tids, φ, rfl, hst', htids,
+    fun t ht th hth => (hthr t ht th hth).transfer_main (ThreadTy.Same.refl _)
       (fun _ _ => rfl), hdist, hown, hpool, hnaT, hnaM, hnaH, ?_, rfl⟩, ?_⟩
   · intro tid' id' rem' fb' hh
     simp only [List.head?_cons, Option.some.injEq] at hh
@@ -2218,22 +2733,23 @@ theorem CfgTyped.awaitDone (hM : M.WF)
     (hpe : c.pool id = some e) (hdone : e.status = .done) :
     ∃ Φ', CfgTyped P M Ψ Am ⟨[⟨none, ⟨σ, H, Function.update T tid none, rest, r⟩ :: as⟩],
       Function.update c.pool id none, c.D, c.K⟩ Φ' ∧ Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   rw [hseg, ← List.nil_append [_]] at hsegs
   obtain ⟨rfl, hseq⟩ := segs_split hsegs
   simp only [Seg.mk.injEq, List.cons.injEq, true_and] at hseq
   obtain ⟨rfl, rfl⟩ := hseq
+  obtain rfl := hst.await_tv (Or.inr ⟨_, _, _, _, rfl⟩)
   have hTid : T tid = some id := haw tid id rem fb rfl
-  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, hsome, hne, htidΘ⟩ := hst.retop
+  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, hsome, hne, htidΘ⟩ := hst.retop (Or.inl rfl)
     (σ' := σ) (T' := Function.update T tid none) (ctl' := rest)
     (fun q Θ' _ => q = 0 ∧ (∀ t th', Θ' t = some th' → t ≠ tid ∧ ∃ th, Θ t = some th ∧
       th.Same th') ∧ (∀ t, t ≠ tid → Θ t ≠ none → Θ' t ≠ none) ∧ Θ tid ≠ none) (by
-      intro fz Γ Γf Δf Θf Q F hct hok hws hwc hcap hcl
+      intro C fz Γ Γf Δf Θf Q F hCd hct hok hws hwc hcap hcl
       cases hct with
       | @awaitW _ _ _ _ _ _ _ th Γa Δa Θa Wa Qa Fa Sa Γ₁' Δ₁' Θ₁' _ Γ₂ Δ₂ Θ₂ Q₂ F₂
           hth hp hamb hfb hCf hs hΔf hstab hΓ hΔ hΘ hws' hwc' hrest =>
-        have htid : tid ∈ tids := (htids tid).2 (by rw [hth]; simp)
+        have htid : tid ∈ tids := (htids tid).2 (by simp [hth])
         obtain ⟨_, _, id', e', hTa, hpe', hHa, _, hst⟩ := hthr tid htid th hth
         dsimp only at hTa hHa
         rw [hTid] at hTa; cases hTa
@@ -2257,11 +2773,11 @@ theorem CfgTyped.awaitDone (hM : M.WF)
           (hcap.await_out hth (hfb.capOK (hcap.erase tid)) hs).of_le hΘ hΔ.le,
           hΔ.shape_eq.trans ((PCtx.shape_join hsh).trans (PCtx.shape_set_of hp _)),
           (fun h => by cases h), rfl, fun t th' h => ThreadCtx.after_await_some hΘ h,
-          fun t ht h => ThreadCtx.after_await_ne hΘ hs ht h, by rw [hth]; simp⟩
+          fun t ht h => ThreadCtx.after_await_ne hΘ hs ht h, by simp [hth]⟩
         rw [zero_add]
         exact le_add_left (hF2.2 _ _ _ _ (le_max_right _ _) le_rfl))
   have htid : tid ∈ tids := (htids tid).2 htidΘ
-  refine ⟨Φ' + ∑ t ∈ tids.erase tid, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, tids.erase tid, φ,
+  refine ⟨Φ' + ∑ t ∈ tids.erase tid, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, _, Vs, tids.erase tid, φ,
     rfl, hst', ?_, ?_, ?_, fun sg h => by simp at h, ?_, hnaT, hnaM, (hnaH.tail : _), ?_, rfl⟩,
     ?_⟩
   · intro t
@@ -2272,7 +2788,7 @@ theorem CfgTyped.awaitDone (hM : M.WF)
     · intro ht
       obtain ⟨th', hth'⟩ := Option.ne_none_iff_exists'.1 ht
       obtain ⟨hne', th, hth, _⟩ := hsome t th' hth'
-      exact Finset.mem_erase.2 ⟨hne', (htids t).2 (by rw [hth]; simp)⟩
+      exact Finset.mem_erase.2 ⟨hne', (htids t).2 (by simp [hth])⟩
   · intro t ht th' hth'
     obtain ⟨hne', th, hth, hs⟩ := hsome t th' hth'
     have ht' := (Finset.mem_erase.1 ht).2
@@ -2282,7 +2798,7 @@ theorem CfgTyped.awaitDone (hM : M.WF)
       dsimp only at hT' ⊢
       refine Function.update_of_ne (fun h => hne' (hdist t ht' tid htid ?_)) _ _
       dsimp only; rw [hT', hTid, h]
-    · intro _ _ _ _ _ _ _ _ _ _ _ hf; simp at hf
+    · intro _ _ _ _ _ _ _ _ _ _ _ _ _ hf; simp at hf
   · intro t₁ h₁ t₂ h₂ he
     have h₁' := Finset.mem_erase.1 h₁
     have h₂' := Finset.mem_erase.1 h₂
@@ -2318,17 +2834,18 @@ theorem CfgTyped.timeout (hM : M.WF)
     ∃ Φ', CfgTyped P M Ψ Am
       ⟨[⟨none, ⟨σ, H, Function.update T tid none, .cmd fb :: rest, r⟩ :: as⟩],
         Function.update c.pool id none, c.D, c.K⟩ Φ' ∧ Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   rw [hseg] at hsegs
   obtain ⟨rfl, hseq⟩ := segs_split hsegs
   simp only [Seg.mk.injEq, List.cons.injEq, true_and] at hseq
   obtain ⟨rfl, rfl⟩ := hseq
+  obtain rfl := hst.await_tv (Or.inr ⟨_, _, _, _, rfl⟩)
   have hTid : T tid = some id := haw tid id rem fb rfl
-  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl, htidΘ⟩ := hst.retop
+  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl, htidΘ⟩ := hst.retop (Or.inl rfl)
     (σ' := σ) (T' := Function.update T tid none) (ctl' := .cmd fb :: rest)
     (fun q Θ' Δ' => q = 0 ∧ Θ' = Θ.erase tid ∧ Δ' = Δ ∧ Θ tid ≠ none) (by
-      intro fz Γ Γf Δf Θf Q F hct hok hws hwc hcap hcl
+      intro C fz Γ Γf Δf Θf Q F hCd hct hok hws hwc hcap hcl
       cases hct with
       | @awaitW _ _ _ _ _ _ _ th Γa Δa Θa Wa Qa Fa Sa Γ₁' Δ₁' Θ₁' _ Γ₂ Δ₂ Θ₂ Q₂ F₂
           hth hp hamb hfb hCf hs hΔf hstab hΓ hΔ hΘ hws' hwc' hrest =>
@@ -2340,7 +2857,7 @@ theorem CfgTyped.timeout (hM : M.WF)
             ((PCtx.Widen.join_right hsh fun h => by cases h).trans hΔ)
             ((ThreadCtx.le_join_right (hs.observe_left _)).trans hΘ) hws' hwc' hrest,
           hok, ?_, hF2.1 (le_max_left _ _), hws.erase tid, hwc.erase tid, hcap.erase tid, rfl,
-          (fun h => by cases h), rfl, rfl, rfl, by rw [hth]; simp⟩
+          (fun h => by cases h), rfl, rfl, rfl, by simp [hth]⟩
         rw [zero_add]
         exact add_le_add (le_add_left le_rfl) (hF2.2 _ _ _ _ (le_max_left _ _) le_rfl))
   have htid : tid ∈ tids := (htids tid).2 htidΘ
@@ -2349,7 +2866,7 @@ theorem CfgTyped.timeout (hM : M.WF)
     refine List.filter_eq_nil_iff.2 fun sg hsg => ?_
     simp only [hown₀ sg hsg, Option.some.injEq, decide_eq_true_eq]
     exact fun h => hid' h.symm
-  refine ⟨Φ' + ∑ t ∈ tids.erase tid, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, tids.erase tid, φ,
+  refine ⟨Φ' + ∑ t ∈ tids.erase tid, φ t, ⟨[], _, _, Φ', X', _, _, b, bm, _, Vs, tids.erase tid, φ,
     rfl, hst', ?_, ?_, ?_, fun sg h => by simp at h, ?_, fun _ h => by simp at h, hnaM,
     (hnaH : _), ?_, rfl⟩, ?_⟩
   · intro t
@@ -2367,7 +2884,7 @@ theorem CfgTyped.timeout (hM : M.WF)
     · dsimp only; exact Function.update_of_ne hne' _ _
     · intro id' hT'; dsimp only at hT' ⊢; exact Function.update_of_ne (hTne id' hT') _ _
     · exact
-      (fun id' _ acts _ _ _ _ _ hT' _ _ hf _ _ => by
+      (fun id' _ acts _ _ _ _ _ _ _ hT' _ _ hf _ _ => by
         rw [hnorun id' (hTne id' hT')] at hf; cases hf)
   · intro t₁ h₁ t₂ h₂ he
     have h₁' := Finset.mem_erase.1 h₁
@@ -2407,23 +2924,39 @@ theorem CfgTyped.async (hP : P.WF) {Am : Multiset (K × St)} {c : Config K St R}
       ⟨[⟨none, ⟨σ, H, Function.update T tid (some id), rest, r⟩ :: as⟩],
         Function.update c.pool id (some ⟨d, cb, σ, p, .pending⟩), c.D, c.K⟩ Φ' ∧
       c.K * (M.spawnCost k s + (c.D.erase d).bg M + ambBg M Am) + Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   rw [hseg, ← List.nil_append [_]] at hsegs
   obtain ⟨rfl, hseq⟩ := segs_split hsegs
   simp only [Seg.mk.injEq, List.cons.injEq, true_and] at hseq
   obtain ⟨rfl, rfl⟩ := hseq
+  have htvp := hst.async_tv
+  obtain ⟨htids0, hthr0, hdist0, hpool0⟩ : (∀ t, t ∈ tids ↔ Θ t ≠ none) ∧
+      (∀ t ∈ tids, ∀ th, Θ t = some th →
+        ThreadOK P M Ψ Am [] c.pool c.D c.K b H T t th (φ t)) ∧
+      (∀ t₁ ∈ tids, ∀ t₂ ∈ tids, T t₁ = T t₂ → t₁ = t₂) ∧
+      (∀ id e, c.pool id = some e → ∃ t ∈ tids, T t = some id) := by
+    rcases htvp with rfl | htvE
+    · exact ⟨htids, hthr, hdist, hpool⟩
+    · have hΘE := hst.top_empty htvE
+      have htE : tids = ∅ :=
+        Finset.eq_empty_of_forall_notMem fun t ht => (htids t).1 ht (htvE t)
+      subst htE
+      refine ⟨fun t => by simp [hΘE t], fun t ht => by simp at ht, fun t ht => by simp at ht,
+        fun id e he => ?_⟩
+      obtain ⟨t, ht, _⟩ := hpool id e he
+      simp at ht
   set pool' := Function.update c.pool id (some (⟨d, cb, σ, p, .pending⟩ : PoolEntry St R))
     with hpool'
   set a' : Act St R := ⟨σ, H, Function.update T tid (some id), rest, r⟩ with ha'
   set cost := c.K * (M.spawnCost k s + (c.D.erase d).bg M + ambBg M Am) with hcost
-  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, th', φt, htidN, hth', rfl, hthr', hrel⟩ := hst.retop
+  obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, th', φt, htidN, hth', rfl, hthr0', hrel⟩ := hst.retop htvp
     (σ' := σ) (T' := Function.update T tid (some id)) (ctl' := rest)
     (fun q Θ' _ => ∃ th' φt, Θ tid = none ∧ Θ' tid = some th' ∧ q = cost + φt ∧
-      ThreadOK P M Ψ Am [] pool' c.D c.K b a' tid th' φt ∧
+      ThreadOK P M Ψ Am [] pool' c.D c.K b H (Function.update T tid (some id)) tid th' φt ∧
       ∀ t, t ≠ tid → (Θ' t = none ↔ Θ t = none) ∧
         ∀ x y, Θ t = some x → Θ' t = some y → x.Same y) (by
-      intro fz Γ Γf Δf Θf Q F hct hok hws hwc hcap hcl
+      intro C fz Γ Γf Δf Θf Q F hCd hct hok hws hwc hcap hcl
       obtain ⟨Γ₁, Δ₁, Θ₁, W, Q₁, F₁, Γ₁', Δ₁', Θ₁', Q₂, F₂, hc, hcW, hΓ, hΔ, hΘ, hws', hwc',
         hrest, rfl, rfl⟩ := hct.cons_inv
       have hcapc := (hc.capOK hcap).of_le hΘ hΔ.le
@@ -2457,13 +2990,13 @@ theorem CfgTyped.async (hP : P.WF) {Am : Multiset (K × St)} {c : Config K St R}
         · simp only [Function.update_self, Option.some.injEq] at e₁
           subst e₁
           refine ⟨th', Qa c.K (b + amb), htid, e₂, rfl, ?_, ?_⟩
-          · have h0 : ThreadOK P M Ψ Am [] pool' c.D c.K b a' tid
+          · have h0 : ThreadOK P M Ψ Am [] pool' c.D c.K b H (Function.update T tid (some id)) tid
                 ⟨p, k, P.hwClose k Wp, Sout, amb, Δ.set p k (P.hwClose k Wp)⟩ (Qa c.K (b + amb)) :=
-              ⟨hstab, hP.hwClose_idem _ _, id, ⟨d, cb, σ, p, .pending⟩, by simp [ha'],
+              ⟨hstab, hP.hwClose_idem _ _, id, ⟨d, cb, σ, p, .pending⟩, by simp,
                 by simp [hpool'], hH, rfl, S, s, Γ, Γb, Δb, Wb, Qa, Fa, Sout, Wp, hD, hs₀, hclS,
                 hσ, hb, hΔb, subset_rfl, hWb, Finset.subset_union_left, rfl⟩
             exact h0.transfer hab rfl rfl (fun _ _ => rfl) (fun _ _ _ _ _ => rfl)
-              (fun _ _ _ _ _ _ _ _ _ _ _ hf => by simp at hf)
+              (fun _ _ _ _ _ _ _ _ _ _ _ _ _ hf => by simp at hf)
           · intro t hne
             refine ⟨?_, ?_⟩
             · have h1 := ((ThreadCtx.SameIds.of_le hΘ) t).1
@@ -2478,39 +3011,39 @@ theorem CfgTyped.async (hP : P.WF) {Am : Multiset (K × St)} {c : Config K St R}
                 obtain ⟨x', hx', rfl⟩ := ThreadCtx.observe_some e₁
                 rw [hx] at hx'; cases hx'
                 exact (ThreadTy.Same.refl x).trans hab')
-  have hnotin : tid ∉ tids := fun h => (htids tid).1 h htidN
+  have hnotin : tid ∉ tids := fun h => (htids0 tid).1 h htidN
   have hTne : ∀ t ∈ tids, T t ≠ some id := by
     intro t ht hT
-    obtain ⟨th, hth⟩ := Option.ne_none_iff_exists'.1 ((htids t).1 ht)
-    obtain ⟨_, _, id', e', hTa, hpe', _⟩ := hthr t ht th hth
-    dsimp only at hTa
+    obtain ⟨th, hth⟩ := Option.ne_none_iff_exists'.1 ((htids0 t).1 ht)
+    obtain ⟨_, _, id', e', hTa, hpe', _⟩ := hthr0 t ht th hth
     rw [hT] at hTa; cases hTa
     rw [hfresh] at hpe'; cases hpe'
   refine ⟨Φ' + ∑ t ∈ insert tid tids, Function.update φ tid φt t,
-    ⟨[], a', _, Φ', X', _, _, b, bm, insert tid tids, Function.update φ tid φt, rfl, hst', ?_,
+    ⟨[], a', _, Φ', X', _, _, b, bm, _, Vs, insert tid tids, Function.update φ tid φt, rfl, hst', ?_,
       ?_, ?_, fun sg h => by simp at h, ?_, hnaT, hnaM, hnaH.tail, ?_, rfl⟩, ?_⟩
   · intro t
     by_cases hne : t = tid
     · subst hne; simp [hth']
-    · rw [Finset.mem_insert, htids t]
+    · rw [Finset.mem_insert, htids0 t]
       simp only [hne, false_or]
       exact (not_congr (hrel t hne).1).symm
   · intro t ht th'' hth''
     by_cases hne : t = tid
     · subst hne
+      change Θ' _ = some th'' at hth''
       rw [hth'] at hth''; cases hth''
-      rw [Function.update_self]; exact hthr'
+      rw [Function.update_self]; exact hthr0'
     · have ht' : t ∈ tids := (Finset.mem_insert.1 ht).resolve_left hne
-      obtain ⟨x, hx⟩ := Option.ne_none_iff_exists'.1 ((htids t).1 ht')
+      obtain ⟨x, hx⟩ := Option.ne_none_iff_exists'.1 ((htids0 t).1 ht')
       rw [Function.update_of_ne hne]
-      refine (hthr t ht' x hx).transfer ((hrel t hne).2 x th'' hx hth'') ?_ rfl ?_
-        (fun _ _ _ _ _ => rfl) (fun _ _ _ _ _ _ _ _ _ _ _ hf => by simp at hf)
+      refine (hthr0 t ht' x hx).transfer ((hrel t hne).2 x th'' hx hth'') ?_ rfl ?_
+        (fun _ _ _ _ _ => rfl) (fun _ _ _ _ _ _ _ _ _ _ _ _ _ hf => by simp at hf)
       · simp [ha', Function.update_of_ne hne]
       · intro id' hT'
         dsimp only at hT' ⊢
         refine Function.update_of_ne (fun h => hTne t ht' (by rw [hT', h])) _ _
   · intro t₁ h₁ t₂ h₂ he
-    simp only [ha'] at he
+    dsimp only at he
     by_cases e₁ : t₁ = tid <;> by_cases e₂ : t₂ = tid
     · exact e₁.trans e₂.symm
     · subst e₁
@@ -2520,7 +3053,7 @@ theorem CfgTyped.async (hP : P.WF) {Am : Multiset (K × St)} {c : Config K St R}
       rw [Function.update_self, Function.update_of_ne e₁] at he
       exact absurd he (hTne t₁ ((Finset.mem_insert.1 h₁).resolve_left e₁))
     · rw [Function.update_of_ne e₁, Function.update_of_ne e₂] at he
-      exact hdist t₁ ((Finset.mem_insert.1 h₁).resolve_left e₁) t₂
+      exact hdist0 t₁ ((Finset.mem_insert.1 h₁).resolve_left e₁) t₂
         ((Finset.mem_insert.1 h₂).resolve_left e₂) he
   · intro id' e' he'
     dsimp only at he'
@@ -2528,7 +3061,7 @@ theorem CfgTyped.async (hP : P.WF) {Am : Multiset (K × St)} {c : Config K St R}
     · subst hid
       exact ⟨tid, Finset.mem_insert_self _ _, by simp [ha']⟩
     · rw [hpool', Function.update_of_ne hid] at he'
-      obtain ⟨t, ht, hT'⟩ := hpool id' e' he'
+      obtain ⟨t, ht, hT'⟩ := hpool0 id' e' he'
       have hne : t ≠ tid := fun h => hnotin (by rw [← h]; exact ht)
       exact ⟨t, Finset.mem_insert_of_mem ht, by simp [ha', Function.update_of_ne hne]; exact hT'⟩
   · intro tid' id' rem' fb' hh
@@ -2584,8 +3117,8 @@ theorem ActOK.thread_start {Γc : TCtx K} {σc : Mem} (hσ : MemOK Γc σc) {D :
 /-- **A finished thread's device is in an exit state**: its bottom layer has run out of
 commands, so its context is its final one, which the exit condition bounds. -/
 theorem StackOK.finished {e : DevEnv St} {Am : Multiset (K × St)} {σ : Mem}
-    {H : Var → Option Dev} {T : Var → Option ThreadId} {D Kc Φ X Θ Δ b bb}
-    (h : StackOK P M Ψ Am (some e) [⟨σ, H, T, [], none⟩] D Kc Φ X Θ Δ b bb) :
+    {H : Var → Option Dev} {T : Var → Option ThreadId} {D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am (some e) [⟨σ, H, T, [], none⟩] D Kc Φ X Θ Δ b bb tv Vs) :
     ∃ k s, D e.dev = .at k s ∧ s ∈ e.out := by
   cases h with
   | base hct hex hΘf hok hws hwc hclo hcapo hsees =>
@@ -2600,10 +3133,10 @@ theorem StackOK.finished {e : DevEnv St} {Am : Multiset (K × St)} {σ : Mem}
 
 /-- **Hardware moving a running thread's own device keeps its stack typed**: the device is in
 the running layer's context, which is closed under hardware steps. -/
-theorem StackOK.hw_self {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X Θ Δ b bb}
-    (h : StackOK P M Ψ Am (some e) as D Kc Φ X Θ Δ b bb) {k : K} {s s' : St}
-    (hD : D e.dev = .at k s) (hs' : s' ∈ P.hwReach k s) :
-    StackOK P M Ψ Am (some e) as (D.set e.dev k s') Kc Φ X Θ Δ b bb := by
+theorem StackOK.hw_self {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X Θ Δ b bb tv Vs}
+    (h : StackOK P M Ψ Am (some e) as D Kc Φ X Θ Δ b bb tv Vs) (htvE : tv.Θ.IsEmpty) {k : K}
+    {s s' : St} (hD : D e.dev = .at k s) (hs' : s' ∈ P.hwReach k s) :
+    StackOK P M Ψ Am (some e) as (D.set e.dev k s') Kc Φ X Θ Δ b bb tv Vs := by
   obtain ⟨a, tl, rfl⟩ := h.cons
   obtain ⟨_, hok, _, _, _, hsees, _, hclo⟩ := h.top
   obtain ⟨_, x, k₂, T₂, hx, hΔx⟩ := hsees e rfl
@@ -2612,7 +3145,7 @@ theorem StackOK.hw_self {e : DevEnv St} {Am : Multiset (K × St)} {as D Kc Φ X 
   obtain ⟨d', hd', hD'⟩ := hC.lookup hSx
   rw [hx] at hd'; cases hd'
   rw [hD] at hD'; cases hD'
-  exact h.move rfl hx hΔx (mem_of_hwClose ((hclo rfl).1 x _ _ hΔx) hsT hs')
+  exact h.move htvE rfl hx hΔx (mem_of_hwClose ((hclo rfl).1 x _ _ hΔx) hsT hs')
 
 /-- **Scheduling a pending thread changes no potential**: its body, typed (frozen) from the
 spawn-time states in the closure memory, becomes a typed stack under the device envelope, whose
@@ -2626,7 +3159,7 @@ theorem CfgTyped.preempt {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
           [.cmd e.body], none⟩]⟩ :: c.segs,
         Function.update c.pool id (some { e with status := .running }), c.D, c.K⟩ Φ' ∧
       Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   obtain ⟨t, ht, hTt⟩ := hpool id e hpe
   obtain ⟨th, hth⟩ := Option.ne_none_iff_exists'.1 ((htids t).1 ht)
@@ -2636,7 +3169,8 @@ theorem CfgTyped.preempt {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
   rw [hpend] at hst'
   obtain ⟨S₀, s, Γc, Γb, Δb, Wb, Qa, Fa, Sout, Wp, hDs, hs, hclS, hσ, hb, hΔb, hSout, hWb,
     hWpV, hφ⟩ := hst'
-  obtain ⟨_, hokm, hwcm, hcapm, hambm, _, _, _⟩ := hst.top
+  obtain ⟨⟨_, _, hokm⟩, _, hwcm, hcapm, hambm⟩ :=
+    hst.tvOK (fun hE => by rw [hE t] at hth; cases hth)
   have hamb := hokm.thread_amb hwcm hcapm hambm hth hHa
   have hnoseg : ∀ sg ∈ tsegs, sg.owner ≠ some id := by
     intro sg hsg hown'
@@ -2658,7 +3192,7 @@ theorem CfgTyped.preempt {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     by_cases hxp : x = e.p
     · rw [hxp, hep, hΔb] at hΔ; cases hΔ; exact hSout
     · simp [hH₀, hxp] at hx
-  have hok : ActOK M Γc (Finsupp.single th.p (.live th.k S₀)) (b + th.amb) e.σ H₀ c.D Am := by
+  have hok : ActOK M Γc (Finsupp.single th.p (.live th.k S₀)) (tv.b + th.amb) e.σ H₀ c.D Am := by
     rw [hH₀, hep]; exact ActOK.thread_start hσ hDs hs hamb
   have hsees : DevEnv.Sees E H₀ (Finsupp.single th.p (.live th.k S₀) : PCtx K St) := by
     intro e₁ he₁
@@ -2668,8 +3202,8 @@ theorem CfgTyped.preempt {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     · simp only [hH₀, hxp, ↓reduceIte, Option.some.injEq] at hx; exact hx.symm
     · simp [hH₀, hxp] at hx
   have hstk := StackOK.base (Am := Am) (E := E) (T := fun _ => none) (Kc := c.K)
-    (CtlTyped.cmd hb hCb (fun _ _ h => h) (PCtx.Widen.refl _) (ThreadCtx.Le.refl _)
-      ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty (.nil (hCb.mono hb.le_W.2)))
+    (CtlTyped.cmd hb ⟨hCb, DevEnv.Ceil.of_none⟩ (fun _ _ h => h) (PCtx.Widen.refl _) (ThreadCtx.Le.refl _)
+      ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty (.nil ⟨hCb.mono hb.le_W.2, DevEnv.Ceil.of_none⟩))
     hex ThreadCtx.empty_isEmpty hok ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
     (fun _ => ⟨PCtx.HWClosed.single hclS, ThreadCtx.SOutClosed.empty⟩) ThreadCtx.CapOK.empty
     hsees (fun _ => rfl)
@@ -2682,22 +3216,22 @@ theorem CfgTyped.preempt {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
       tsegs.filter (fun sg => sg.owner = some id') := by
     intro id' hne
     rw [List.filter_cons_of_neg (by simp [hnseg]; exact fun h => hne h.symm)]
-  refine ⟨Φm + ∑ t ∈ tids, φ t, ⟨nseg :: tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ,
+  refine ⟨Φm + ∑ t ∈ tids, φ t, ⟨nseg :: tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ,
     by simp only [hsegs, List.cons_append], hst, htids, ?_, hdist, ?_, ?_, ?_, hnaM, hnaH, haw, rfl⟩, le_rfl⟩
   · intro t' ht' th' hth'
     by_cases htt : t' = t
     · subst htt
       rw [hth] at hth'; cases hth'
       refine ⟨hstab, hVc, id, { e with status := .running }, hTt, by simp, hHa, hep, ?_⟩
-      refine ⟨_, _, _, _, _, _, hfilt, hstk, ThreadCtx.empty_isEmpty, ?_⟩
+      refine ⟨_, _, _, _, _, _, _, _, hfilt, hstk, ThreadCtx.empty_isEmpty, ?_⟩
       simp only [hφ, add_zero]
-    · have hTne : ∀ id', a.T t' = some id' → id' ≠ id := fun id' hT' h =>
+    · have hTne : ∀ id', tv.T t' = some id' → id' ≠ id := fun id' hT' h =>
         htt (hdist t' ht' t ht (by rw [hT', hTt, h]))
       refine (hthr t' ht' th' hth').transfer (ThreadTy.Same.refl _) rfl rfl ?_
         (fun _ _ _ _ _ => rfl) ?_
       · intro id' hT'; exact Function.update_of_ne (hTne id' hT') _ _
-      · intro id' e'' acts Φt Xt Θt Δt bt hT' _ _ hf hstk' hΘe
-        exact ⟨acts, Xt, Θt, Δt, bt, by rw [hfilt' id' (hTne id' hT')]; exact hf, hstk', hΘe⟩
+      · intro id' e'' acts Φt Xt Θt Δt bt tvt Vst hT' _ _ hf hstk' hΘe
+        exact ⟨acts, Xt, Θt, Δt, bt, tvt, Vst, by rw [hfilt' id' (hTne id' hT')]; exact hf, hstk', hΘe⟩
   · intro sg hsg
     rcases List.mem_cons.1 hsg with rfl | hsg
     · exact ⟨t, ht, id, { e with status := .running }, hTt, rfl, by simp, rfl⟩
@@ -2720,7 +3254,7 @@ theorem CfgTyped.threadDone {Am : Multiset (K × St)} {c : Config K St R} {Φ : 
     (hseg : c.segs = ⟨some id, [⟨σ, H, T, [], none⟩]⟩ :: ss) (hpe : c.pool id = some e) :
     ∃ Φ', CfgTyped P M Ψ Am ⟨ss, Function.update c.pool id (some { e with status := .done }),
       c.D, c.K⟩ Φ' ∧ Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   obtain ⟨tsegs₁, rfl, hss⟩ : ∃ tsegs₁, tsegs = ⟨some id, [⟨σ, H, T, [], none⟩]⟩ :: tsegs₁ ∧
       ss = tsegs₁ ++ [⟨none, a :: ma⟩] := by
@@ -2740,12 +3274,13 @@ theorem CfgTyped.threadDone {Am : Multiset (K × St)} {c : Config K St R} {Φ : 
   rw [hTt] at hTa; cases hTa
   rw [hpe] at hpe''; cases hpe''
   rw [hrun] at hst'
-  obtain ⟨acts, Φt, Xt, Θt, Δt, bt, hf, hstk, _, hφ⟩ := hst'
+  obtain ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk, _, hφ⟩ := hst'
   rw [List.filter_cons_of_pos (by simp [hsegd])] at hf
   simp only [List.cons.injEq, hsegd, Seg.mk.injEq, true_and] at hf
   obtain ⟨rfl, hf₁⟩ := hf
   obtain ⟨k, s, hDs, hs⟩ := hstk.finished
-  obtain ⟨_, hokm, _, hcapm, _, _, _, _⟩ := hst.top
+  obtain ⟨⟨_, _, hokm⟩, _, _, hcapm, _⟩ :=
+    hst.tvOK (fun hE => by rw [hE t] at hth; cases hth)
   obtain ⟨V', hV', _⟩ := hcapm.1 t th hth
   obtain ⟨_, S, _, hC, _, hS, _⟩ := hokm
   obtain ⟨s₀, hSp, _⟩ := hS.live hV'
@@ -2754,7 +3289,7 @@ theorem CfgTyped.threadDone {Am : Multiset (K × St)} {c : Config K St R} {Φ : 
   rw [hDs] at hD'; cases hD'
   have hnoseg : ∀ sg ∈ tsegs₁, sg.owner ≠ some id := fun sg hsg h =>
     by rw [List.filter_eq_nil_iff] at hf₁; simpa [h] using hf₁ sg hsg
-  refine ⟨Φm + ∑ t' ∈ tids, Function.update φ t 0 t', ⟨tsegs₁, a, ma, Φm, Xm, Θ, Δ, b, bm, tids,
+  refine ⟨Φm + ∑ t' ∈ tids, Function.update φ t 0 t', ⟨tsegs₁, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids,
     Function.update φ t 0, rfl, hst, htids, ?_, hdist, ?_, ?_, fun sg h => hnaT sg
       (List.mem_cons_of_mem _ h), hnaM, hnaH, haw, rfl⟩, ?_⟩
   · intro t' ht' th' hth'
@@ -2764,14 +3299,14 @@ theorem CfgTyped.threadDone {Am : Multiset (K × St)} {c : Config K St R} {Φ : 
       rw [Function.update_self]
       exact ⟨hstab, hVc, id, { e with status := .done }, hTt, by simp, hHa, hep, s, hDs, hs,
         hstab s hs, rfl⟩
-    · have hTne : ∀ id', a.T t' = some id' → id' ≠ id := fun id' hT' h =>
+    · have hTne : ∀ id', tv.T t' = some id' → id' ≠ id := fun id' hT' h =>
         htt (hdist t' ht' t ht (by rw [hT', hTt, h]))
       rw [Function.update_of_ne htt]
       refine (hthr t' ht' th' hth').transfer (ThreadTy.Same.refl _) rfl rfl ?_
         (fun _ _ _ _ _ => rfl) ?_
       · intro id' hT'; exact Function.update_of_ne (hTne id' hT') _ _
-      · intro id' e₂ acts' Φt' Xt' Θt' Δt' bt' hT' _ _ hf' hstk' hΘe
-        refine ⟨acts', Xt', Θt', Δt', bt', ?_, hstk', hΘe⟩
+      · intro id' e₂ acts' Φt' Xt' Θt' Δt' bt' tvt' Vst' hT' _ _ hf' hstk' hΘe
+        refine ⟨acts', Xt', Θt', Δt', bt', tvt', Vst', ?_, hstk', hΘe⟩
         rw [List.filter_cons_of_neg (by simp [hsegd]; exact fun h => hTne id' hT' h.symm)] at hf'
         exact hf'
   · intro sg hsg
@@ -2798,7 +3333,7 @@ theorem CfgTyped.hw {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     (hpe : c.pool id = some e) (hnd : e.status ≠ .done) (hD : c.D e.dev = .at k s)
     (hs' : s' ∈ P.hwReach k s) :
     ∃ Φ', CfgTyped P M Ψ Am ⟨c.segs, c.pool, c.D.set e.dev k s', c.K⟩ Φ' ∧ Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   obtain ⟨t, ht, hTt⟩ := hpool id e hpe
   obtain ⟨th, hth⟩ := Option.ne_none_iff_exists'.1 ((htids t).1 ht)
@@ -2806,7 +3341,8 @@ theorem CfgTyped.hw {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
   obtain ⟨hstab, hVc, id', e', hTa, hpe', hHa, hep, hst'⟩ := hthr₀
   rw [hTt] at hTa; cases hTa
   rw [hpe] at hpe'; cases hpe'
-  obtain ⟨_, hokm, hwcm, hcapm, hambm, _, _, _⟩ := hst.top
+  obtain ⟨⟨_, _, hokm⟩, _, hwcm, hcapm, hambm⟩ :=
+    hst.tvOK (fun hE => by rw [hE t] at hth; cases hth)
   obtain ⟨V', hV', hVV'⟩ := hcapm.1 t th hth
   have hkind : k = th.k := by
     obtain ⟨_, S, _, hC, _, hS, _⟩ := hokm
@@ -2825,14 +3361,15 @@ theorem CfgTyped.hw {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
       rw [Finsupp.single_eq_same, hWb] at this
       exact hWpV (this.2 hs₁)
     | running =>
-      rintro ⟨acts, Φt, Xt, Θt, Δt, bt, _, hstk, _, _⟩
+      rintro ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, _, hstk, _, _⟩
       obtain ⟨k₂, s₂, hD₂, hs₂⟩ := hstk.dev_in_env
       rw [hD] at hD₂; cases hD₂; exact hs₂
     | done => exact absurd hes hnd
   have hs'V : s' ∈ th.V := mem_of_hwClose hVc hsV hs'
-  have hstm := hst.move rfl hHa hV' (hVV' hs'V)
-  obtain ⟨_, hokm2, hwcm2, hcapm2, hambm2, _, _, _⟩ := hstm.top
-  refine ⟨Φm + ∑ t ∈ tids, φ t, ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hstm,
+  have hstm := hst.move_tv hth hHa hs'V
+  obtain ⟨⟨_, _, hokm2⟩, _, hwcm2, hcapm2, hambm2⟩ :=
+    hstm.tvOK (fun hE => by rw [hE t] at hth; cases hth)
+  refine ⟨Φm + ∑ t ∈ tids, φ t, ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hstm,
     htids, ?_, hdist, hown, hpool, hnaT, hnaM, hnaH, haw, rfl⟩, le_rfl⟩
   intro t' ht' th' hth'
   by_cases htt : t' = t
@@ -2847,13 +3384,13 @@ theorem CfgTyped.hw {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
       exact ⟨S₀, s', Γc, Γb, Δb, Wb, Qa, Fa, Sout, Wp, by simp [RPeriphs.set_apply],
         mem_of_hwClose hclS hs₁ hs', hclS, hrest⟩
     | running =>
-      rintro ⟨acts, Φt, Xt, Θt, Δt, bt, hf, hstk, hΘe, hφ⟩
-      exact ⟨acts, Φt, Xt, Θt, Δt, bt, hf, hstk.hw_self hD hs', hΘe, hφ⟩
+      rintro ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk, hΘe, hφ⟩
+      exact ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk.hw_self hΘe hD hs', hΘe, hφ⟩
     | done => exact absurd hes hnd
   · obtain ⟨_, _, id₂, e₂, hT₂, hp₂, hH₂, _⟩ := hthr t' ht' th' hth'
     have hne : e₂.dev ≠ e.dev :=
       fun h => hokm.dev_ne hcapm hth' hth htt hH₂ (h ▸ hHa) rfl
-    have hDD : ∀ id'' e'', a.T t' = some id'' → c.pool id'' = some e'' →
+    have hDD : ∀ id'' e'', tv.T t' = some id'' → c.pool id'' = some e'' →
         (c.D.set e.dev th.k s') e''.dev = c.D e''.dev := by
       intro id'' e'' hT'' hp''
       rw [hT₂] at hT''; cases hT''
@@ -2861,8 +3398,8 @@ theorem CfgTyped.hw {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
       simp [RPeriphs.set_apply, hne]
     refine (hthr t' ht' th' hth').transfer (ThreadTy.Same.refl _) rfl rfl (fun _ _ => rfl)
       (fun id'' e'' hT'' hp'' _ => hDD id'' e'' hT'' hp'') ?_
-    intro id'' e'' acts Φt Xt Θt Δt bt hT'' hp'' _ hf hstk hΘe
-    refine ⟨acts, Xt, Θt, Δt, bt, hf, hstk.foreign (hDD id'' e'' hT'' hp'') ?_, hΘe⟩
+    intro id'' e'' acts Φt Xt Θt Δt bt tvt Vst hT'' hp'' _ hf hstk hΘe
+    refine ⟨acts, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk.foreign (hDD id'' e'' hT'' hp'') ?_ hΘe, hΘe⟩
     rw [hT₂] at hT''; cases hT''
     rw [hp₂] at hp''; cases hp''
     exact hokm2.thread_amb hwcm2 hcapm2 hambm2 hth' hH₂
@@ -2890,7 +3427,7 @@ theorem CfgTyped.step_thread (hM : M.WF)
     (hseg : c.segs = ⟨some id, as⟩ :: ss) (htop : TopOK as)
     {q tick as' D' K'} (hstep : ActStep M Ψd Am as c.D c.K q tick as' D' K') :
     ∃ Φ', CfgTyped P M Ψ Am ⟨⟨some id, as'⟩ :: ss, c.pool, D', K'⟩ Φ' ∧ q + Φ' ≤ Φ := by
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   obtain ⟨tsegs₁, rfl, hss⟩ : ∃ tsegs₁, tsegs = ⟨some id, as⟩ :: tsegs₁ ∧
       ss = tsegs₁ ++ [⟨none, a :: ma⟩] := by
@@ -2908,18 +3445,19 @@ theorem CfgTyped.step_thread (hM : M.WF)
   rw [hTt] at hTa; cases hTa
   rw [hpe] at hpe'; cases hpe'
   rw [hrun] at hst'
-  obtain ⟨acts, Φt, Xt, Θt, Δt, bt, hf, hstk, hΘe, hφ⟩ := hst'
+  obtain ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk, hΘe, hφ⟩ := hst'
   rw [List.filter_cons_of_pos (by simp)] at hf
   simp only [List.cons.injEq, Seg.mk.injEq, true_and] at hf
   obtain ⟨rfl, hf₁⟩ := hf
-  obtain ⟨Φt', Xt', Θt', Δt', bt', hstk', hq, _, hsame, _, _, _, hKfz⟩ :=
+  obtain ⟨Φt', Xt', Θt', Δt', bt', tvt', Vst', hstk', hq, _, hsame, _, hKfz⟩ :=
     hstk.step hM hΨ hP hΨc hΨd htop hstep
   obtain rfl : K' = c.K := hKfz rfl
-  have hΘe' : Θt'.IsEmpty := fun t' => ((hsame t').1).1 (hΘe t')
-  obtain ⟨_, hokm, hwcm, hcapm, hambm, _, _, _⟩ := hst.top
+  have hΘe' : tvt'.Θ.IsEmpty := fun t' => ((hsame t').1).1 (hΘe t')
+  obtain ⟨⟨_, _, hokm⟩, _, hwcm, hcapm, hambm⟩ :=
+    hst.tvOK (fun hE => by rw [hE t] at hth; cases hth)
   obtain ⟨V', hV', hVV'⟩ := hcapm.1 t th hth
   -- the store changes at most at the thread's device, within its envelope
-  obtain ⟨hstm, hfr⟩ : StackOK P M Ψ Am none (a :: ma) D' c.K Φm Xm Θ Δ b bm ∧
+  obtain ⟨hstm, hfr⟩ : StackOK P M Ψ Am none (a :: ma) D' c.K Φm Xm Θ Δ b bm tv Vs ∧
       ∀ d, d ≠ e.dev → D' d = c.D d := by
     obtain ⟨a₀, tl, rfl⟩ := hstk.cons
     rcases hstep.store with rfl | ⟨x, d, k, s, st, hx, hDd, rfl⟩
@@ -2936,12 +3474,13 @@ theorem CfgTyped.step_thread (hM : M.WF)
       obtain ⟨k₂, s₂, hD₂, hs₂⟩ := hstk'.dev_in_env
       simp only [RPeriphs.set_apply, ↓reduceIte] at hD₂
       cases hD₂
-      exact ⟨hst.move rfl hHa hV' (hVV' hs₂), fun d hne => by simp [RPeriphs.set_apply, hne]⟩
-  obtain ⟨_, hokm2, hwcm2, hcapm2, hambm2, _, _, _⟩ := hstm.top
+      exact ⟨hst.move_tv hth hHa hs₂, fun d hne => by simp [RPeriphs.set_apply, hne]⟩
+  obtain ⟨⟨_, _, hokm2⟩, _, hwcm2, hcapm2, hambm2⟩ :=
+    hstm.tvOK (fun hE => by rw [hE t] at hth; cases hth)
   have hnoseg : ∀ sg ∈ tsegs₁, sg.owner ≠ some id := fun sg hsg h => by
     rw [List.filter_eq_nil_iff] at hf₁; simpa [h] using hf₁ sg hsg
   refine ⟨Φm + ∑ t' ∈ tids, Function.update φ t Φt' t',
-    ⟨⟨some id, as'⟩ :: tsegs₁, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, Function.update φ t Φt',
+    ⟨⟨some id, as'⟩ :: tsegs₁, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, Function.update φ t Φt',
       rfl, hstm, htids, ?_, hdist, ?_, hpool, segsNoAwait_cons' (hstep.noAwait
         (hnaT _ List.mem_cons_self)) (fun sg h => hnaT sg (List.mem_cons_of_mem _ h)), hnaM,
       hnaH, haw, rfl⟩, ?_⟩
@@ -2952,7 +3491,7 @@ theorem CfgTyped.step_thread (hM : M.WF)
       rw [Function.update_self]
       refine ⟨hstab, hVc, id, e, hTt, hpe, hHa, hep, ?_⟩
       rw [hrun]
-      refine ⟨as', Φt', Xt', Θt', Δt', bt', ?_, hstk', hΘe', rfl⟩
+      refine ⟨as', Φt', Xt', Θt', Δt', bt', tvt', Vst', ?_, hstk', hΘe', rfl⟩
       rw [List.filter_cons_of_pos (by simp), List.filter_eq_nil_iff.2 fun sg hsg => by
         simpa using hnoseg sg hsg]
     · obtain ⟨_, _, id₂, e₂, hT₂, hp₂, hH₂, _⟩ := hthr t' ht' th' hth'
@@ -2965,12 +3504,12 @@ theorem CfgTyped.step_thread (hM : M.WF)
         rw [hT₂] at hT''; cases hT''
         rw [hp₂] at hp''; cases hp''
         exact hfr _ hne
-      · intro id'' e'' acts' Φt₂ Xt₂ Θt₂ Δt₂ bt₂ hT'' hp'' _ hf' hstk₂ hΘe₂
+      · intro id'' e'' acts' Φt₂ Xt₂ Θt₂ Δt₂ bt₂ tvt₂ Vst₂ hT'' hp'' _ hf' hstk₂ hΘe₂
         rw [hT₂] at hT''; cases hT''
         rw [hp₂] at hp''; cases hp''
         rw [List.filter_cons_of_neg (by simp; exact fun h => hid h.symm)] at hf'
-        refine ⟨acts', Xt₂, Θt₂, Δt₂, bt₂, ?_, hstk₂.foreign (hfr _ hne)
-          (hokm2.thread_amb hwcm2 hcapm2 hambm2 hth' hH₂), hΘe₂⟩
+        refine ⟨acts', Xt₂, Θt₂, Δt₂, bt₂, tvt₂, Vst₂, ?_, hstk₂.foreign (hfr _ hne)
+          (hokm2.thread_amb hwcm2 hcapm2 hambm2 hth' hH₂) hΘe₂, hΘe₂⟩
         rw [List.filter_cons_of_neg (by simp; exact fun h => hid h.symm)]
         exact hf'
   · intro sg hsg
@@ -3001,7 +3540,7 @@ theorem CfgTyped.drain {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     (hc : CfgTyped P M Ψ Am c Φ) (d : R) :
     ∃ Φ', CfgTyped P M Ψ Am (c.drain d) Φ' ∧ Φ' ≤ Φ := by
   obtain ⟨segs, pool, D, Kc⟩ := c
-  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
+  obtain ⟨tsegs, a, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, hsegs, hst, htids, hthr, hdist, hown,
     hpool, hnaT, hnaM, hnaH, haw, rfl⟩ := hc
   dsimp only at hsegs
   subst hsegs
@@ -3015,19 +3554,20 @@ theorem CfgTyped.drain {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
       · simp only [List.mem_singleton] at hs; subst hs
         exact actsNoAwait_cons.2 ⟨fun _ h => by simp at h, hnaM⟩
     rw [Config.drain_eq_self (c := ⟨_, pool, D, Kc⟩) hna]
-    exact ⟨_, ⟨tsegs, _, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, rfl, hst, htids, hthr, hdist, hown,
+    exact ⟨_, ⟨tsegs, _, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, rfl, hst, htids, hthr, hdist, hown,
       hpool, hnaT, hnaM, hnaH, haw, rfl⟩, le_rfl⟩
   | cons x rest =>
     rw [Config.drain_main hnaT (by simpa using hnaH) hnaM]
     cases x with
     | cmd c₀ =>
-      exact ⟨_, ⟨tsegs, _, ma, Φm, Xm, Θ, Δ, b, bm, tids, φ, rfl, hst, htids, hthr, hdist, hown,
+      exact ⟨_, ⟨tsegs, _, ma, Φm, Xm, Θ, Δ, b, bm, tv, Vs, tids, φ, rfl, hst, htids, hthr, hdist, hown,
         hpool, hnaT, hnaM, hnaH, haw, rfl⟩, le_rfl⟩
     | awaitW tid id rem fb =>
-      obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl⟩ := hst.retop
+      obtain rfl := hst.await_tv (Or.inr ⟨_, _, _, _, rfl⟩)
+      obtain ⟨q, Φ', X', Θ', Δ', hst', hq, _, rfl, rfl, rfl⟩ := hst.retop (Or.inl rfl)
         (σ' := σ) (T' := T) (ctl' := .awaitW tid id (rem - d) fb :: rest)
         (fun q Θ' Δ' => q = 0 ∧ Θ' = Θ ∧ Δ' = Δ) (by
-          intro fz Γ Γf Δf Θf Q F hct hok hws hwc hcap hcl
+          intro C fz Γ Γf Δf Θf Q F hCd hct hok hws hwc hcap hcl
           cases hct with
           | awaitW hth hp hamb hfb hCf hs hΔf hstab hΓ hΔ hΘ hws' hwc' hrest =>
             refine ⟨0, Γ, Δ, Θ, _, _, .awaitW hth hp hamb hfb hCf hs hΔf hstab hΓ hΔ hΘ hws'
@@ -3035,10 +3575,10 @@ theorem CfgTyped.drain {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
             rw [zero_add]
             exact add_le_add (add_le_add (mul_le_mul_of_nonneg_right waitAllow_drain zero_le)
               le_rfl) le_rfl)
-      refine ⟨Φ' + ∑ t ∈ tids, φ t, ⟨tsegs, _, ma, Φ', X', _, _, b, bm, tids, φ, rfl, hst',
+      refine ⟨Φ' + ∑ t ∈ tids, φ t, ⟨tsegs, _, ma, Φ', X', _, _, b, bm, _, Vs, tids, φ, rfl, hst',
         htids, fun t ht th hth => (hthr t ht th hth).transfer (ThreadTy.Same.refl _) rfl rfl
           (fun _ _ => rfl) (fun _ _ _ _ _ => rfl)
-          (fun _ _ acts _ _ _ _ _ _ _ _ hf hstk hΘe => ⟨acts, _, _, _, _, hf, hstk, hΘe⟩), hdist, hown, hpool,
+          (fun _ _ acts _ _ _ _ _ _ _ _ _ _ hf hstk hΘe => ⟨acts, _, _, _, _, _, _, hf, hstk, hΘe⟩), hdist, hown, hpool,
         hnaT, hnaM, hnaH, ?_, rfl⟩, ?_⟩
       · intro tid' id' rem' fb' hh
         simp only [List.head?_cons, Option.some.injEq] at hh
@@ -3052,7 +3592,7 @@ theorem CfgTyped.drain {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
 theorem CfgTyped.main_alone {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     (hc : CfgTyped P M Ψ Am c Φ) {as : List (Act St R)} {ss : List (Seg St R)}
     (hseg : c.segs = ⟨none, as⟩ :: ss) : ss = [] := by
-  obtain ⟨tsegs, a, ma, _, _, _, _, _, _, _, _, hsegs, _, _, _, _, hown, _⟩ := hc
+  obtain ⟨tsegs, a, ma, _, _, _, _, _, _, _, _, _, _, hsegs, _, _, _, _, hown, _⟩ := hc
   rw [hseg] at hsegs
   cases tsegs with
   | nil => simp only [List.nil_append, List.cons.injEq] at hsegs; exact hsegs.2.symm ▸ rfl
@@ -3066,10 +3606,11 @@ waiting frame. -/
 theorem CfgTyped.thread_seg {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     (hc : CfgTyped P M Ψ Am c Φ) {id : ThreadId} {as : List (Act St R)}
     {ss : List (Seg St R)} (hseg : c.segs = ⟨some id, as⟩ :: ss) :
-    ∃ e Φt Xt Θt Δt bt bb, StackOK P M Ψ Am (some e) as c.D c.K Φt Xt Θt Δt bt bb ∧
+    ∃ e Φt Xt Θt Δt bt bb tvt Vst,
+      StackOK P M Ψ Am (some e) as c.D c.K Φt Xt Θt Δt bt bb tvt Vst ∧
       Θt.IsEmpty ∧ ActsNoAwait as := by
-  obtain ⟨tsegs, a, ma, _, _, Θ, _, _, _, tids, _, hsegs, _, htids, hthr, _, hown, _, hnaT,
-    _⟩ := hc
+  obtain ⟨tsegs, a, ma, _, _, Θ, _, _, _, tv, _, tids, _, hsegs, _, htids, hthr, _, hown, _,
+    hnaT, _⟩ := hc
   rw [hseg] at hsegs
   cases tsegs with
   | nil => simp at hsegs
@@ -3083,25 +3624,25 @@ theorem CfgTyped.thread_seg {Am : Multiset (K × St)} {c : Config K St R} {Φ : 
     rw [hTt] at hTa; cases hTa
     rw [hpe] at hpe'; cases hpe'
     rw [hrun] at hst'
-    obtain ⟨acts, Φt, Xt, Θt, Δt, bt, hf, hstk, hΘe, _⟩ := hst'
+    obtain ⟨acts, Φt, Xt, Θt, Δt, bt, tvt, Vst, hf, hstk, hΘe, _⟩ := hst'
     rw [List.filter_cons_of_pos (by simp)] at hf
     simp only [List.cons.injEq, Seg.mk.injEq, true_and] at hf
     obtain ⟨rfl, _⟩ := hf
-    exact ⟨_, _, _, _, _, _, _, hstk, hΘe, hnaT _ List.mem_cons_self⟩
+    exact ⟨_, _, _, _, _, _, _, _, _, hstk, hstk.top_empty hΘe, hnaT _ List.mem_cons_self⟩
 
 /-- A thread stack never runs an `async`: it is frozen, and T-Async needs an unfrozen setting
 (no nested threads). -/
 theorem StackOK.no_async {e : DevEnv St} {Am : Multiset (K × St)} {σ : Mem}
     {H : Var → Option Dev} {T : Var → Option ThreadId} {tid p : Var} {cb : Cmd St R}
-    {ctl : List (Ctl St R)} {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb}
+    {ctl : List (Ctl St R)} {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb tv Vs}
     (h : StackOK P M Ψ Am (some e) (⟨σ, H, T, .cmd (.async tid p cb) :: ctl, r⟩ :: tl) D Kc Φ X
-      Θ Δ b bb) : False := by
+      Θ Δ b bb tv Vs) : False := by
   cases h with
   | base hct _ _ _ _ _ _ _ _ hfzo =>
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hc, _⟩ := hct.cons_inv
     cases hc with
     | async _ _ _ _ _ _ _ _ _ hfz => rw [hfzo rfl] at hfz; cases hfz
-  | push hct _ _ _ _ _ _ _ hfzo =>
+  | push hct _ _ _ _ _ _ _ _ hfzo =>
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hc, _⟩ := hct.cons_inv
     cases hc with
     | async _ _ _ _ _ _ _ _ _ hfz => rw [hfzo rfl] at hfz; cases hfz
@@ -3110,9 +3651,9 @@ theorem StackOK.no_async {e : DevEnv St} {Am : Multiset (K × St)} {σ : Mem}
 be pending). -/
 theorem StackOK.no_await {E : Option (DevEnv St)} {Am : Multiset (K × St)} {σ : Mem}
     {H : Var → Option Dev} {T : Var → Option ThreadId} {tid : Var} {n : ℕ} {fb : Cmd St R}
-    {ctl : List (Ctl St R)} {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb}
+    {ctl : List (Ctl St R)} {r : Option (Expr × Var)} {tl D Kc Φ X Θ Δ b bb tv Vs}
     (h : StackOK P M Ψ Am E (⟨σ, H, T, .cmd (.await tid n fb) :: ctl, r⟩ :: tl) D Kc Φ X
-      Θ Δ b bb) (hΘ : Θ.IsEmpty) : False := by
+      Θ Δ b bb tv Vs) (hΘ : Θ.IsEmpty) : False := by
   cases h with
   | base hct =>
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hc, _⟩ := hct.cons_inv
@@ -3166,7 +3707,7 @@ theorem CfgTyped.timeout_shape {Am : Multiset (K × St)} {c : Config K St R} {Φ
     {r : Option (Expr × Var)} {as : List (Act St R)} {ss : List (Seg St R)}
     (hseg : c.segs = ⟨some id, acts⟩ :: ⟨o, ⟨σ, H, T, .awaitW tid id' rem fb :: ctl, r⟩ :: as⟩ ::
       ss) : o = none ∧ ss = [] := by
-  obtain ⟨tsegs, a, ma, _, _, _, _, _, _, _, _, hsegs, _, _, _, _, _, _, hnaT, _⟩ := hc
+  obtain ⟨tsegs, a, ma, _, _, _, _, _, _, _, _, _, _, hsegs, _, _, _, _, _, _, hnaT, _⟩ := hc
   rw [hseg] at hsegs
   cases tsegs with
   | nil => simp at hsegs
@@ -3230,7 +3771,7 @@ theorem CfgTyped.mstep (hM : M.WF)
       obtain ⟨Φ₁, h₁, hle⟩ := hc.async hP rfl hH hD hfresh
       exact fin h₁ hle
     | some id' =>
-      obtain ⟨_, _, _, _, _, _, _, hstk, _, _⟩ := hc.thread_seg rfl
+      obtain ⟨_, _, _, _, _, _, _, _, _, hstk, _, _⟩ := hc.thread_seg rfl
       exact hstk.no_async.elim
   | @awaitStart o σ H T tid n fb ctl r as ss pool D Kc id hT =>
     cases o with
@@ -3239,7 +3780,7 @@ theorem CfgTyped.mstep (hM : M.WF)
       obtain ⟨Φ₁, h₁, hle⟩ := hc.awaitStart rfl hT
       exact fin h₁ (by rw [zero_add]; exact hle)
     | some id' =>
-      obtain ⟨_, _, _, _, _, _, _, hstk, hΘe, _⟩ := hc.thread_seg rfl
+      obtain ⟨_, _, _, _, _, _, _, _, _, hstk, hΘe, _⟩ := hc.thread_seg rfl
       exact (hstk.no_await hΘe).elim
   | @awaitDone o σ H T tid id rem fb ctl r as ss pool D Kc e hpe hdone =>
     cases o with
@@ -3248,7 +3789,7 @@ theorem CfgTyped.mstep (hM : M.WF)
       obtain ⟨Φ₁, h₁, hle⟩ := hc.awaitDone hM hΨ rfl hpe hdone
       exact fin h₁ (by rw [zero_add]; exact hle)
     | some id' =>
-      obtain ⟨_, _, _, _, _, _, _, _, _, hna⟩ := hc.thread_seg rfl
+      obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hna⟩ := hc.thread_seg rfl
       exact (hna _ List.mem_cons_self _ List.mem_cons_self).elim
   | @awaitWait o σ H T tid id rem fb ctl r as ss pool D Kc e hpe hpend hpos =>
     cases o with
@@ -3256,7 +3797,7 @@ theorem CfgTyped.mstep (hM : M.WF)
       obtain rfl := hc.main_alone rfl
       exact hc.awaitWait rfl hpos
     | some id' =>
-      obtain ⟨_, _, _, _, _, _, _, _, _, hna⟩ := hc.thread_seg rfl
+      obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hna⟩ := hc.thread_seg rfl
       exact (hna _ List.mem_cons_self _ List.mem_cons_self).elim
   | @awaitTimeout o σ H T tid id rem fb ctl r as ss pool D Kc e hpe hpend hle0 =>
     cases o with
@@ -3265,7 +3806,7 @@ theorem CfgTyped.mstep (hM : M.WF)
       obtain ⟨Φ₁, h₁, hle⟩ := hc.timeout (tsegs₀ := []) hM hΨ rfl (fun _ h => by simp at h)
       exact fin h₁ (by rw [zero_add]; exact hle)
     | some id' =>
-      obtain ⟨_, _, _, _, _, _, _, _, _, hna⟩ := hc.thread_seg rfl
+      obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hna⟩ := hc.thread_seg rfl
       exact (hna _ List.mem_cons_self _ List.mem_cons_self).elim
   | @timeoutRunning id acts o σ H T tid rem fb ctl r as ss pool D Kc hle0 =>
     obtain ⟨rfl, rfl⟩ := hc.timeout_shape rfl

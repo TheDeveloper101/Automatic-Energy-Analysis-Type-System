@@ -165,9 +165,6 @@ inductive TypedA (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R
       TypedA P M Ψ fz Γ Δ Θ (.matchSt p arms) Γ' Δ' Θ' (Δ.join W) Q F
   /-- T-Call.  The callee's parameter may pass through `sig.visit` during the call, which
   pending threads observe; in a frozen setting the callee must keep the clock fixed. -/
-  -- STAGING RESTRICTION (temporary, 2026-11-09): `Θ.IsEmpty` — no call while a thread is
-  -- pending.  Lets the soundness proof be completed end to end first; to be removed (see
-  -- `ASYNC_PROOF_PLAN.md`).
   | call {fz Γ Δ Θ x g e p sig S} :
       Ψ g = some sig →
       HasTy Γ e sig.argTy →
@@ -175,7 +172,6 @@ inductive TypedA (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R
       Δ p = .live sig.pKind S → S ⊆ sig.sIn →
       ¬ Θ.Captures p →
       (fz = true ∨ ¬ Θ.IsEmpty → sig.stableClock = true) →
-      Θ.IsEmpty →
       TypedA P M Ψ fz Γ Δ Θ (.call x g e p) (Γ.bind x sig.retTy) (Δ.set p sig.pKind sig.sOut)
         ((Θ.observe (Δ.set p sig.pKind sig.visit)).observe (Δ.set p sig.pKind sig.sOut))
         ((Δ.join (Δ.set p sig.pKind sig.visit)).join (Δ.set p sig.pKind sig.sOut))

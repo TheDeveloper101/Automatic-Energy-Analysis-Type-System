@@ -47,7 +47,7 @@ theorem TypedA.frozen_clk
   | .seq h₁ h₂, hfz, f => by
       simp only [h₁.frozen_clk hΨc hfz f, h₂.frozen_clk hΨc hfz f]
   | .matchSt _ _ _ ha, hfz, f => ha.frozen_clk hΨc hfz f
-  | .call hg _ _ _ _ _ hst _, hfz, f => hΨc _ _ hg (hst (Or.inl hfz)) f
+  | .call hg _ _ _ _ _ hst, hfz, f => hΨc _ _ hg (hst (Or.inl hfz)) f
   | .async _ _ _ _ _ _ _ _ _ _, _, _ => rfl
   | .await _ _ _ hfb _ _ _, hfz, f => by simp [hfb.frozen_clk hΨc hfz f]
 
@@ -142,7 +142,7 @@ theorem TypedA.winShape {fz Γ Δ Θ c Γ' Δ' Θ' W Q F} :
       have e := PCtx.shape_set_of hp ∅
       rw [← e] at h ⊢
       exact ha.winShape h
-  | .call _ _ _ hp _ _ _ _, h =>
+  | .call _ _ _ hp _ _ _, h =>
       (h.observe (PCtx.shape_set_of hp _)).observe (PCtx.shape_set_of hp _)
   | .async hp _ _ _ _ _ _ _ _ _, h => by
       refine (h.observe (PCtx.shape_set_of hp _)).update _ _ ?_
@@ -337,7 +337,7 @@ theorem TypedA.ambOK_back {fz Γ Δ Θ c Γ' Δ' Θ' W Q F} :
       have e := PCtx.shape_set_of hp ∅
       rw [← e] at hw
       exact ha.ambOK_back hw h
-  | .call _ _ _ hp _ _ _ _, hw, h =>
+  | .call _ _ _ hp _ _ _, hw, h =>
       (h.of_observe (hw.observe (PCtx.shape_set_of hp _)) (PCtx.shape_set_of hp _)).of_observe hw
         (PCtx.shape_set_of hp _)
   | .async hp _ hfresh _ _ _ _ _ _ _, hw, h =>
@@ -410,7 +410,7 @@ theorem TypedA.le_W {fz Γ Δ Θ c Γ' Δ' Θ' W Q F} :
   | .matchSt hp _ _ ha =>
       have hW : _ := (ha.shape_eq.2.trans (PCtx.shape_set_of hp ∅)).symm
       ⟨PCtx.le_join_left hW, ha.le_W.trans (PCtx.le_join_right hW)⟩
-  | .call (sig := sig) _ _ _ hp _ _ _ _ =>
+  | .call (sig := sig) _ _ _ hp _ _ _ =>
       have h₁ := PCtx.shape_set_of hp sig.visit
       have h₂ := PCtx.shape_set_of hp sig.sOut
       have hin := PCtx.shape_join h₁.symm
@@ -550,7 +550,7 @@ theorem TypedA.hwClosed (hP : P.WF) (hΨ : SigsClosedA P Ψ) {fz Γ Δ Θ c Γ' 
       have ⟨a₁, b₁⟩ := h₁.hwClosed hP hΨ hΔ hΘ
       h₂.hwClosed hP hΨ a₁ b₁
   | .matchSt _ _ _ ha, hΔ, hΘ => ha.hwClosed hP hΨ hΔ hΘ
-  | .call hg _ _ _ _ _ _ _, hΔ, hΘ => ⟨hΔ.set (hΨ _ _ hg), (hΘ.observe _).observe _⟩
+  | .call hg _ _ _ _ _ _, hΔ, hΘ => ⟨hΔ.set (hΨ _ _ hg), (hΘ.observe _).observe _⟩
   | .async _ _ _ _ _ _ _ hstab _ _, hΔ, hΘ =>
       ⟨hΔ.set (hP.hwClose_idem _ _), (hΘ.observe _).update _ _ (hP.hwClose_of_stable hstab)⟩
   | .await ht _ _ hfb _ _ _, hΔ, hΘ =>
@@ -675,7 +675,7 @@ theorem TypedA.winCover {fz Γ Δ Θ c Γ' Δ' Θ' W Q F} :
       have e := PCtx.shape_set_of hp ∅
       rw [← e] at hw
       exact ha.winCover hw
-  | .call (sig := sig) _ _ _ hp _ _ _ _, hw, _ => by
+  | .call (sig := sig) _ _ _ hp _ _ _, hw, _ => by
       have e₁ := PCtx.shape_set_of hp sig.visit
       have e₂ := PCtx.shape_set_of hp sig.sOut
       have hw' := hw.observe e₁

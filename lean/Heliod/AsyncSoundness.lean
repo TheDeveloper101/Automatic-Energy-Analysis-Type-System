@@ -50,7 +50,7 @@ theorem TypedA.shape_eq {fz Γ Δ Θ c Γ' Δ' Θ' W Q F} :
       have ⟨hΔ, hW⟩ := ha.shape_eq
       have h₀ := PCtx.shape_set_of hp ∅
       ⟨hΔ.trans h₀, PCtx.shape_join (hW.trans h₀).symm⟩
-  | .call (sig := sig) _ _ _ hp _ _ _ _ =>
+  | .call (sig := sig) _ _ _ hp _ _ _ =>
       have h₁ := PCtx.shape_set_of hp sig.visit
       have h₂ := PCtx.shape_set_of hp sig.sOut
       have hin := PCtx.shape_join h₁.symm
@@ -125,7 +125,7 @@ theorem TypedA.mono (hM : M.WF) (hΨ : ∀ g sig, Ψ g = some sig → SummaryMon
       ⟨hF₂.comp hF₁, fun _ _ _ _ hf hb =>
         add_le_add (hQ₁ _ _ _ _ hf hb) (hQ₂ _ _ _ _ (hF₁ hf) hb)⟩
   | .matchSt _ _ _ ha => ha.mono hM hΨ
-  | .call hg _ _ _ _ _ _ _ =>
+  | .call hg _ _ _ _ _ _ =>
       have ⟨hF, hQ⟩ := hΨ _ _ hg
       ⟨hF, fun _ _ _ _ hf hb =>
         add_le_add (mul_mono₂ hf (add_le_add le_rfl hb)) (hQ _ _ _ _ hf (add_le_add hb le_rfl))⟩

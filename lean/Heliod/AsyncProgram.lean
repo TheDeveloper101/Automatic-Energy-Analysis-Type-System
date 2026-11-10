@@ -15,8 +15,7 @@ connects it to programs:
   potential `Q K₀ 0` its typing gives.
 * **`Program.MRun.soundnessA`**: a well-typed program (async included), run to completion on
   the machine from clock `K₀`, costs at most `Q K₀ 0` — for every schedule and every sequence
-  of hardware steps.  Under the STAGING RESTRICTION on T-Call (`AsyncTyping.lean`).
--/
+  of hardware steps.  -/
 
 set_option linter.unusedSectionVars false
 
@@ -46,7 +45,7 @@ theorem TypedA.weaken {Ψ Ψ' : SigCtxA K St R} (hle : SigCtxA.Le Ψ Ψ')
   | .clock a b c => .clock a b c
   | .seq h₁ h₂ => .seq (h₁.weaken hle) (h₂.weaken hle)
   | .matchSt a b c ha => .matchSt a b c (ha.weaken hle)
-  | .call hg a b c d e f g => .call (hle _ _ hg) a b c d e f g
+  | .call hg a b c d e f => .call (hle _ _ hg) a b c d e f
   | .async a b c d e hb g h i j => .async a b c d e (hb.weaken hle) g h i j
   | .await a b c hfb e f g => .await a b c (hfb.weaken hle) e f g
 
@@ -202,9 +201,9 @@ theorem Program.initCfgTyped {prog : Program K St R} {Ψ Γ' Δ' W Q F}
       by simp [ambBg]⟩
   have hst := StackOK.base (P := P) (M := M) (Ψ := Ψ) (Am := 0) (E := none)
     (T := fun _ => none) (Kc := K₀)
-    (CtlTyped.cmd ht.2.2 (fun e he => by cases he) (fun _ _ h => h) (PCtx.Widen.refl _)
+    (CtlTyped.cmd ht.2.2 ⟨DevEnv.Ceil.of_none, DevEnv.Ceil.of_none⟩ (fun _ _ h => h) (PCtx.Widen.refl _)
       (ThreadCtx.Le.refl _) ThreadCtx.WinShape.empty ThreadCtx.WinCover.empty
-      (.nil (fun e he => by cases he)))
+      (.nil ⟨DevEnv.Ceil.of_none, DevEnv.Ceil.of_none⟩))
     (fun e he => by cases he) ThreadCtx.empty_isEmpty hok ThreadCtx.WinShape.empty
     ThreadCtx.WinCover.empty (fun h => by cases h) ThreadCtx.CapOK.empty
     (fun e he => by cases he) (fun h => by cases h)
@@ -216,9 +215,8 @@ run to completion on the machine from clock `K₀`, costs at most `Q K₀ 0` —
 schedule (when threads are preempted onto the stack), whatever the hardware does to captured
 peripherals within their envelopes, and whether each `await` succeeds or times out.  The
 initial configuration is typed with potential `Q K₀ 0` (`Program.initCfgTyped`), every step
-pays for itself (`CfgTyped.steps`), and potentials are nonnegative.
-
-Under the STAGING RESTRICTION on T-Call (no call while a thread is pending). -/
+pays for itself (`CfgTyped.steps`), and potentials are nonnegative.  Calls are allowed while
+threads are pending (the callee must keep the clock fixed). -/
 theorem Program.MRun.soundnessA (hM : M.WF) (hP : P.WF) {prog : Program K St R}
     {Ψ : SigCtxA K St R} {Γ' : TCtx K} {Δ' W : PCtx K St} {Q : R → R → R} {F : R → R}
     (ht : prog.TypedA P M Ψ Γ' Δ' W Q F) {K₀ q : R} {c : Config K St R}
