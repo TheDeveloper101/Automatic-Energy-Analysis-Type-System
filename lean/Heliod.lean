@@ -21,3 +21,4 @@ import Heliod.AsyncAccounting
 import Heliod.AsyncSlack
 import Heliod.Embed
 import Heliod.AsyncNecessity
+import Heliod.Inference
