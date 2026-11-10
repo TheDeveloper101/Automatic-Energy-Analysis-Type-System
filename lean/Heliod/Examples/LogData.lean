@@ -74,6 +74,7 @@ theorem P_wf : P.WF where
     cases s' <;> simp_all [P, rank]
   hwReach_sub _ _ := by simp [P]
   hwReach_stable _ _ _ := rfl
+  hwReach_closed _ _ _ h := by simp [P] at h
 
 /-- `log_data` as a declaration. -/
 def logData : FunDecl Kind TS ℕ where

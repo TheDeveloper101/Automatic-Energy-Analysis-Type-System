@@ -121,7 +121,7 @@ theorem PCtx.shape_set_set (Δ : PCtx K St) (p : Var) (k : K) (S S' : Finset St)
 omit [DecidableEq K] [DecidableEq St] in
 /-- Resetting the state set of a handle already bound at kind `k` does not change the shape.
 This covers `transition`, `downgrade`, `call` and the narrowing in `match`. -/
-private theorem PCtx.shape_set_of {Δ : PCtx K St} {p : Var} {k : K} {S : Finset St}
+theorem PCtx.shape_set_of {Δ : PCtx K St} {p : Var} {k : K} {S : Finset St}
     (hp : Δ p = .live k S) (S' : Finset St) : (Δ.set p k S').shape = Δ.shape := by
   funext x; by_cases h : x = p
   · subst h; simp [PCtx.shape, hp]
@@ -129,7 +129,7 @@ private theorem PCtx.shape_set_of {Δ : PCtx K St} {p : Var} {k : K} {S : Finset
 
 /-- Joining two contexts of the same shape keeps that shape (state sets are unioned, kinds agree).
 The `if`/`match` cases of `shape_eq`. -/
-private theorem PCtx.shape_join {Δ₁ Δ₂ : PCtx K St} (h : Δ₁.shape = Δ₂.shape) :
+theorem PCtx.shape_join {Δ₁ Δ₂ : PCtx K St} (h : Δ₁.shape = Δ₂.shape) :
     (Δ₁.join Δ₂).shape = Δ₁.shape := by
   funext x
   have hx := congrFun h x
