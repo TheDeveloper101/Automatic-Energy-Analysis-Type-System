@@ -27,7 +27,9 @@ Summed along a run, cost `≤ Φ(initial) = Q K₀ 0`.
 | — | machine type safety: `CfgTyped.progress`, `Program.typeSafetyA` (`AsyncSafety.lean`) | done |
 | — | accounting (A) on the machine: `Steps.accounting` (`AsyncAccounting.lean`) | done |
 | — | slack (B1 + B2): `Program.slack_decompositionA` (`AsyncSlack.lean`) — wait / fallback / abandon items | done |
-| — | slack (B3, local-step classification incl. envelope / window; B4, schedule necessity) | later |
+| — | slack (B3): per-handle charge items and branch / arm / clock items from local, call and return steps | done |
+| — | residual itemized: spawn charge, waiting-tick charge, join / timeout clock, await-start rounding, callee continuations | done |
+| — | slack (B4, schedule necessity); exact equality `r = 0` | later |
 
 Everything listed as done builds with no `sorry`; `Program.MRun.soundnessA` and `Program.typeSafetyA` depend only on
 `propext`, `Classical.choice`, `Quot.sound`.
