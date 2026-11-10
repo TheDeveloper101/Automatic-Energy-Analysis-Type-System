@@ -17,7 +17,7 @@ The syntax is parameterised by
 * **First-order value types.**  The paper's `τ` includes function types
   `(τ₁, s⃗₁) → (τ₂, s⃗₂)` and puts functions (and, later, thread ids) into `Γ`.  Functions are
   only ever introduced by top-level declarations and only ever used in `let x = g(e, p)`, so we
-  keep `Ty` first-order and will give function signatures (and async-thread summaries) their
+  keep `Ty` first-order and give function signatures (and async-thread summaries) their
   own contexts in the typing judgment.  This avoids storing cost functions inside `Ty`.
 * **Peripheral handles are variables.**  `transition(x, st)`, `match p with …`, calls and
   `async(p)` name a handle variable; its kind is recorded in the peripheral context `Δ`
@@ -30,7 +30,7 @@ The syntax is parameterised by
   with a mutual `Arms` type rather than `List (St × Cmd)`, so that the typing judgment (which
   must join the outputs of all arms) can be a plain mutual inductive with a usable induction
   principle.
-* **Timeouts are natural numbers** of ticks (`timeout[n]`, with `n > 0` checked by typing).
+* **Timeouts are natural numbers** (`timeout[n]`); the paper's `n > 0` premise is not needed.
 -/
 
 /-- Program variables: ordinary variables, peripheral handles, and thread ids. -/
@@ -140,7 +140,7 @@ def Arms.states {St R : Type} [DecidableEq St] : Arms St R → Finset St
 
 `pKind` records the kind of the peripheral parameter `p` (implicit in the paper, where `p`'s
 type is determined by the states `s⃗₁`, `s⃗₂` it is annotated with).  The checking system uses
-the annotations `sIn = s⃗₁`, `sOut = s⃗₂`; the inference system will ignore them. -/
+the annotations `sIn = s⃗₁`, `sOut = s⃗₂`; inline typing (`TypedI`, `Heliod.Inference`) ignores them. -/
 structure FunDecl (K St R : Type) where
   name : FName
   arg : Var

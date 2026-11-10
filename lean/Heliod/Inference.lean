@@ -8,11 +8,13 @@ The paper's state inference makes a function's cost **parametric in its entry st
 entry state is a state variable, solved at each call site together with the caller's knowledge
 ("lazy concretization"), so a call is charged for the states the caller actually passes rather
 than for every state the function accepts.  We model the constraints by the state sets they
-denote (`TODO.md`, design decision B):
+denote (`PAPER_DIFFERENCES.md`, section 6):
 
 * **Narrowing** (`Typed.narrow`): typing from a more precise context — smaller state sets, more
-  known variables — gives no larger summaries and more precise outputs.  This is the one new
-  metatheorem; it is what makes call-site concretization never worse than declared signatures.
+  known variables — gives no larger summaries and more precise outputs (given monotone
+  signature summaries, non-empty signature output sets, and non-empty narrowed state sets).
+  This is the key new metatheorem; it is what makes call-site concretization never worse than
+  declared signatures.
 
 * **Inline typing** (`TypedI`, `soundnessI`): a call types the callee's body from the caller's
   current states (lazy concretization), with no declared `sIn` / `sOut`; sound like `Typed`.
@@ -20,8 +22,8 @@ denote (`TODO.md`, design decision B):
   with no larger summaries — call-site concretization is never worse than declared signatures.
 
 * **Accepted entry states** (`Accepts`, `entrySet`): what a function accepts is a downward-closed
-  predicate on entry-state sets (`Accepts.mono`, via `TypedI.narrow`) containing every declared
-  `sIn` (`Program.Typed.accepts`).  It is not closed under union (path-insensitive joins), so
+  predicate on entry-state sets (`Accepts.mono`, via `TypedI.narrow`) containing every non-empty
+  subset of a declared `sIn` (`Program.Typed.accepts`).  It is not closed under union (path-insensitive joins), so
   there is no largest accepted set in general (`Heliod.Examples.EntrySets`).
 
 The writeup's `log_data` under inline typing — called from `Idle`, charged at `Idle` — is
@@ -154,6 +156,7 @@ mutual
 
 /-- **Narrowing**: a command typed from `Γ, Δ` is typed from any more precise `Γ₀ ⊇ Γ`,
 `Δ₀ ⊑ Δ` (with non-empty state sets), with more precise outputs and no larger summaries.
+Assumes every signature's summaries are monotone (`hΨm`) and its output set non-empty (`hΨne`).
 Typing from fewer possible states can only drop cases: a `match` skips more arms, a join
 unions smaller sets, transitions and downgrades take the worst case over fewer sources.  (The
 non-emptiness keeps a `match` with at least one reachable arm.) -/
@@ -1020,7 +1023,7 @@ theorem Accepts.subset_entrySet (hM : M.WF) {d : FunDecl K St R} {S : Finset St}
   fun s hs => h.mono hM (Finset.singleton_subset_iff.2 hs) (Finset.singleton_nonempty s)
 
 /-- A checked program's signatures are inlinable for its declarations (`DeclsTyped.sigsInline`
-from the empty context), and monotone (`Program.sigsValid`). -/
+from the empty context). -/
 theorem Program.Typed.sigsInline (hM : M.WF) {prog : Program K St R} {Ψ Γ' Δ' Q F}
     (ht : prog.Typed P M Ψ Γ' Δ' Q F) : SigsInline P M prog.fctx Ψ :=
   ht.2.1.sigsInline hM (fun _ hd => Program.fctx_of_mem ht.1 hd)

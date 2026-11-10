@@ -1,4 +1,4 @@
-# Async soundness: design and status (updated 2026-11-10)
+# Async soundness proof: design
 
 Goal: `Program.MRun.soundnessA` — a program well typed under `TypedA`, run to completion on
 the machine from clock `K₀`, costs at most `Q K₀ 0`, for every schedule and every sequence of
@@ -32,12 +32,11 @@ Summed along a run, cost `≤ Φ(initial) = Q K₀ 0`.
 | — | B4 Parts 1–2: local necessity, the await gap (`Program.await_gap`), rounding (`AsyncNecessity.lean`) | done |
 | — | B4 Part 3: never-schedule run attains the waiting charge up to a tick (`Steps.never_schedule`) | done |
 | — | exact decomposition `Q K₀ 0 = q + Σ items` (every step lemma an equality) | done |
-| — | T-Await: `max` form dropped (unsound); overlap-based tightening (duration lower bound) not planned — see `TODO.md` | — |
 
 Everything listed as done builds with no `sorry`; `Program.MRun.soundnessA` and `Program.typeSafetyA` depend only on
 `propext`, `Classical.choice`, `Quot.sound`.
 
-## Rule decisions in force (see `TODO.md` for the full rationale)
+## Rule decisions in force (rationale in `PAPER_DIFFERENCES.md`, section 5)
 
 * **Spawn-time charge**: T-AsyncFun charges the body's summary `Q_a f (b + amb)` at the spawn
   (a closure paid for when created); `amb` is a declared bound on the window ambient, checked
@@ -151,6 +150,5 @@ outer ambient `0`).
 
 ## Open items
 
-* **Narrowing refactor — not planned** (reconsidered 2026-11-10): replacing `PCtx.Widen` links by a narrowing lemma would change no result, only move state slack into `branch` items; see `TODO.md`.
-* **Done:** embedding `Typed → TypedA` (`Embed.lean`). **Later:** slack for async (via "an async is a closure called
-  at the spawn, at the window ambient").
+None for the proof itself.  Possible extensions (async state inference, a tighter T-Await) are
+listed in `TODO.md`.

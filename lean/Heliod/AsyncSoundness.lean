@@ -2,7 +2,7 @@ import Heliod.AsyncTyping
 import Heliod.Soundness
 
 /-!
-# Soundness of the async type system — step 1: structural lemmas for `TypedA`
+# Soundness of the async type system: structural lemmas for `TypedA`
 
 Ports of the synchronous typing lemmas the soundness proof relies on:
 
@@ -12,7 +12,7 @@ Ports of the synchronous typing lemmas the soundness proof relies on:
   spawn charges the body's summary, which is monotone by the same lemma applied to the body.
 
 These are the inputs to the potential-function argument (configuration typing and the per-step
-potential inequality), which comes next.
+potential equation, `Heliod.AsyncConfig`).
 -/
 
 variable {K St R : Type} [DecidableEq K] [DecidableEq St]

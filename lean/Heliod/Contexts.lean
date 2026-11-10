@@ -18,11 +18,12 @@ import Mathlib.Algebra.BigOperators.Finsupp.Basic
   together with `update` (`Δ[p : s⃗]`), `erase` (`Δ \ p`) and pointwise `zipWith` (the join).
 * **Entries record the kind.**  `PEntry.live k S` says the handle is a peripheral of kind `k`
   currently in one of the states `S`.  Costs are per kind, so `cost(Δ)` is computable from `Δ`
-  alone.  The async extension will add a `cap` (captured) entry.
+  alone.  Captured handles are not a separate entry: the async typing tracks them in the
+  thread context (`ThreadCtx`, `Heliod.AsyncTyping`).
 * **Join on mismatch drops the handle.**  The join `Δ₁ ∪ Δ₂` (T-If, T-Match) unions state sets
   pointwise.  If the two sides disagree on whether/at which kind a handle is bound, the result
   is `absent`.  This case is unreachable for well-typed sync commands, since typing never
-  changes the domain or kinds of `Δ` (to be proved as a lemma alongside soundness).
+  changes the domain or kinds of `Δ` (`Typed.shape_eq`).
 * **Expression cost is a function**, not part of the expression judgment: `q_e` depends only on
   the syntax of `e`, so separating it keeps `HasTy` a plain typing relation.
 -/
@@ -202,8 +203,8 @@ end PCtx
 list; the semantics looks bodies up here (typing uses `SigCtx`). -/
 abbrev FCtx (K St R : Type) := FName → Option (FunDecl K St R)
 
-/-- The function context of a program: look a name up in the declaration list.  Shared by the
-typing judgment and the semantics. -/
+/-- The function context of a program: look a name up in the declaration list.  Used by the
+semantics and by inline typing (`TypedI`); the checking typing uses signatures (`SigCtx`). -/
 def Program.fctx (prog : Program K St R) : FCtx K St R :=
   fun g => prog.funs.find? (fun d => d.name == g)
 

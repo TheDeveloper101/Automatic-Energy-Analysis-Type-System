@@ -13,7 +13,8 @@ import Heliod.Soundness
   the same cost.  Proved by strong induction on the number of machine steps: with no threads,
   each command's first step is determined, and a call's body run is followed by its return.
 * **Consequence** (`Program.MRun.soundness`): cost soundness holds on the machine for
-  synchronous programs; likewise the accounting and slack results transfer.
+  synchronous programs.  The big-step accounting and slack results apply to such runs through
+  `Program.MRun.toEval`; they are not restated as machine theorems.
 
 So the machine, built for async, does not change the meaning or the cost of synchronous code.
 

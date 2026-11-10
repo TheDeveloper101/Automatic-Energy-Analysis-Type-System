@@ -4,7 +4,7 @@ import Heliod.AsyncSoundness
 # Async soundness — piece 3a: invariants of the async typing
 
 Pure lemmas about `TypedA` that the configuration typing (piece 3b) relies on.  See
-`ASYNC_PROOF_PLAN.md`, "Piece 3 in detail".
+`ASYNC_PROOF_PLAN.md`, "Configuration typing".
 
 * **Frozen clock** (`TypedA.frozen_clk`): a frozen derivation never changes the clock (its exit
   clock summary is the identity), given that `stableClock` signatures have the identity as

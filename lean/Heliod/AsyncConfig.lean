@@ -401,7 +401,8 @@ creates.  With `cl` (thread stacks), siblings must be closed under hardware step
 keep the current context closed and a hardware step on the thread's device stays within it.
 
 (A more principled alternative is to have no links at all and retype the rest of the program
-from the branch's own output, by a narrowing lemma; see `ASYNC_PROOF_PLAN.md`.) -/
+from the branch's own output, by a narrowing lemma.  Considered and decided against: it would
+change no result; see `TODO.md`.) -/
 def PCtx.Widen (P : Platform K St) (cl : Bool) (Δ Δ' : PCtx K St) : Prop :=
   Δ' = Δ ∨ ∃ Δ₂ : PCtx K St, Δ₂.shape = Δ.shape ∧ (cl = true → Δ₂.HWClosed P) ∧ Δ' = Δ.join Δ₂
 
@@ -650,8 +651,9 @@ The step lemmas below report the slack they release as a list of items, each wit
 amount.  Charge kinds (released by a step's own charge, typed minus actual, per handle):
 `state` (a visible handle's typed state set against its device's actual state), `envelope` (the
 same for a handle a pending thread has captured), `transition` (the moving device's worst-case
-transition against the actual one), `ambient` / `window` (the typed ambient bound against the
-actual background of everything the activation cannot see, in a non-thread / thread layer).
+transition against the actual one), `spawn` (the worst-case spawn cost against the actual one),
+`ambient` / `window` (the typed ambient bound against the actual background of everything the
+activation cannot see, in a non-thread / thread layer).
 Structural kinds (dropped from the potential): `branch` (the untaken branch of an `if` was more
 expensive), `arm` (the arms of a `match` other than the one taken), `clock` (the rest of the
 program charged at a typed exit-clock bound above the actual clock).  Schedule kinds (released by
@@ -1096,8 +1098,9 @@ theorem CtlTyped.cons_inv {fz Γ Δ Θ} {c : Cmd St R} {rest Γf Δf Θf Q F}
 /-- **One step of an activation's local command pays for itself.**  If the activation's control
 stack starting with a local command `c` is typed and the activation agrees with its typing,
 then a step of the activation (`ActStep`; it does not involve other threads, the pool
-or timers) leaves a typed control stack in an agreeing activation, with the step's cost plus the new potential at most
-the old potential `Q K b`, and the exit-clock bound not larger.  The final contexts of the
+or timers) leaves a typed control stack in an agreeing activation, with the step's cost plus the
+released slack items plus the new potential equal to the old potential `Q K b`, and the
+exit-clock bound not larger.  The final contexts of the
 control stack are unchanged. -/
 theorem CtlTyped.step (hM : M.WF)
     (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono sig.cost sig.clk) {Ψd : FCtx K St R}
@@ -1910,8 +1913,8 @@ theorem ActStep.store {Ψd : FCtx K St R} {A : Multiset (K × St)} {a : Act St R
 
 
 /-- **One step of a typed stack pays for itself** (local commands, calls and returns, as
-`ActStep`s — independent of other threads and the pool).  The step's cost plus the new
-potential is at most the old potential, and the exit bound does not grow.  The thread view
+`ActStep`s — independent of other threads and the pool).  The step's cost plus the released
+slack items plus the new potential equals the old potential, and the exit bound does not grow.  The thread view
 keeps the same pending threads; while there are any, the spawner's ambient bound, handle and
 thread-id maps, the clock and the threads' devices are unchanged. -/
 theorem StackOK.step (hM : M.WF)
@@ -3182,9 +3185,10 @@ configuration typing, named by its spec:
 
 * `wait` — unused waiting allowance of `main`'s waiting frame, priced at the frame's typed
   per-tick rate `w = cost(Δ) + b` (T-Await's `maxBg V + cost(Δ ∖ p) + b`, since `Δ p = V`),
-  where `Δ, b` type the frame and agree with the store (`WaitRate`).  Released by ticks
-  of a running thread (its time counts against the budget), by the rounding of a waiting
-  tick, and in full when the awaited thread is joined.
+  where `Δ, b` type the frame and agree with the store (`WaitRate`).  Released at `awaitStart`
+  (only when `n = 0`), by ticks of a running thread (its time counts against the budget), by
+  the rounding of a waiting tick, and in full when the awaited thread is joined.  The item's
+  specification records only that it is a multiple of that rate.
 * `fallback` — the fallback's summary `Q_fb K b`, never run because the thread finished
   (`FallbackSum`).
 * `abandon` — the contribution of a thread abandoned at a timeout: the body's reserved summary
@@ -3243,8 +3247,10 @@ def ASlack.Spec (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
   | .abandon => AbandonSum P M Ψ Am c i.amount
   | _ => HeadSpec P M Ψ Am c i ∨ HeadSpec P M Ψ Am c' i
 
-/-- **`awaitStart` changes no potential**: the `await` command becomes a waiting frame with
-nothing elapsed, typed by the same premises with the same summary. -/
+/-- **`awaitStart`**: the `await` command becomes a waiting frame with nothing elapsed, typed by
+the same premises.  The potential changes only by the released items: a `wait` item `x` (zero
+when `n > 0`; the whole waiting allowance when `n = 0`, since `waitAllow 0 K = 0`) and `clock`
+items. -/
 theorem CfgTyped.awaitStart {Am : Multiset (K × St)} {c : Config K St R} {Φ : R}
     (hc : CfgTyped P M Ψ Am c Φ) {σ : Mem} {H : Var → Option Dev} {T : Var → Option ThreadId}
     {tid : Var} {n : ℕ} {fb : Cmd St R} {rest : List (Ctl St R)} {r : Option (Expr × Var)}
@@ -4585,11 +4591,14 @@ theorem ASlack.spec_abandon {Am : Multiset (K × St)} {c c' : Config K St R} {x 
 
 /-- **3c: every machine step pays for itself, and reports the async slack it releases.**  A
 typed configuration with potential `Φ` steps (with timers drained after a ticked step) to a
-typed configuration whose potential, plus the step's cost, plus the released slack items, is
-at most `Φ`.  Items: the unused waiting allowance released by a waiting tick's rounding, by
-draining the timer while a thread runs, and in full at `awaitDone` (`wait`); the unused
-fallback at `awaitDone` (`fallback`); the abandoned thread's contribution at a timeout
-(`abandon`).  Cases: steps of the running activation (`main`'s or a thread's), spawns, the
+typed configuration whose potential, plus the step's cost, plus the released slack items,
+*equals* `Φ`.  Items: the charge and structural kinds of local, call, return and spawn steps
+(`state`, `envelope`, `transition`, `spawn`, `ambient`, `window`, `branch`, `arm`, `clock`);
+`clock` items after a join or timeout; the unused waiting allowance (`wait`), released at
+`awaitStart` when `n = 0`, by a waiting tick's rounding, by draining the timer while a thread
+runs, and in full at `awaitDone`; the unused fallback at `awaitDone` (`fallback`); the abandoned
+thread's contribution at a timeout (`abandon`).  Each item satisfies `ASlack.Spec`.  Finally, a
+step after which `main` no longer waits released a `fallback` or `abandon` item.  Cases: steps of the running activation (`main`'s or a thread's), spawns, the
 `await` frames, scheduling, completion, timeouts and hardware steps; the rest are impossible in
 a typed configuration (threads never spawn or await, and only `main`'s running activation
 waits). -/

@@ -17,7 +17,7 @@ each call with `b + cost(Δ ∖ p)`.  These examples check that this behaves as 
    charged inside `log_data`, two calls down.
 3. **Branches of unequal duration** (`branchy_exact`): the summary keeps
    `max(q₁ + T₁·b, q₂ + T₂·b)` rather than the looser `max(q₁, q₂) + max(T₁, T₂)·b`; on a concrete
-   cost model the bound is `25` where the looser form would give `35`.
+   cost model the summary evaluates to `25`, while the looser form, computed by hand, gives `35`.
 
 Reuses the sensor platform `P`, the abbreviations `bg`, `tr`, and `log_data` with its summary
 `logDataCost` from `Heliod.Examples.LogData`.
@@ -312,12 +312,13 @@ def M₀ : CostModel Kind TS ℕ where
   clockCost _ _ := 0
   spawnCost _ _ := 0
 
-/-- **The summary is exact at branches of unequal duration.**  Call `branchy` at clock `1` while one
+/-- **The summary at branches of unequal duration.**  Call `branchy` at clock `1` while one
 `Off` sensor is ambient (`b = 5`).  The long branch costs `3·5 = 15` (ambient only), the short
 branch `10 + 5 = 15`, and evaluating the condition and the return expression `5` each: the summary
 is `25`.  Splitting local cost
 from duration would give `max(0, 10) + max(3, 1)·5 + 5 + 5 = 35` — it charges the long branch's
-duration *and* the short branch's transition, which no single run does. -/
+duration *and* the short branch's transition, which no single run does.  (The theorem evaluates
+both expressions; it does not evaluate a run.) -/
 theorem branchy_exact :
     branchyCost M₀ 1 5 = 25 ∧ max 0 10 + max 3 1 * 5 + 5 + 5 = 35 := by
   simp [branchyCost, M₀, bg, tr]

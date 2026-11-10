@@ -21,7 +21,8 @@ agree (`HWReach(st) = ∅`, `Platform.WF`).  Sync typing never introduces a tran
 *declares* are stable: the handles' initial states and every function's input and output
 states.  Then every state set in every context of the derivation is stable (`PCtx.Stable`).
 
-Without the condition, `TypedA` can give a strictly larger (still sound) summary.
+Without the condition the embedding is not proved.  (`TypedA` may then give a larger, still
+sound, summary, e.g. because its `match` arms narrow to `hwClose {st}` rather than `{st}`.)
 
 ## Signatures
 

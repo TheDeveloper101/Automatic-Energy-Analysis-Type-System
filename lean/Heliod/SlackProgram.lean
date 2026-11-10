@@ -133,8 +133,9 @@ theorem Program.sigsDerived {prog : Program K St R} {Ψ Γ' Δ' Q F}
 
 omit [DecidableEq K] [DecidableEq St] [CommSemiring R] [LinearOrder R] [OrderBot R] in
 /-- **Programs start with no state uncertainty.**  Every declared handle has a single initial
-state, so the initial context is pinned; all `state` slack in a program run arises from merges,
-multi-state function inputs or multi-state call outputs (`Typed.pinned`). -/
+state, so the initial context is pinned; all `state` slack in a program run arises from merges
+(after an `if`, or a `match` with repeated arm states), multi-state function inputs or
+multi-state call outputs (`Typed.pinned`). -/
 theorem Program.initPinned (prog : Program K St R) : prog.initPCtx.Pinned := by
   unfold Program.initPCtx
   induction prog.periphs with

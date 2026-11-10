@@ -24,7 +24,7 @@ simply `pop D A = entries(D) + A`, whichever thread runs.
 * `MStep.accounting` — the same for machine steps, with the time accounting: after a charge
   event every waiting timer is lowered by exactly the event's clock (`Config.drain`).
 * `Steps.accounting` — **whole runs**: the cost of any run is the sum of its charge events, and
-  every event charges a population with the same devices as the start.
+  every event charges a population with the same multiset of kinds as the start.
 
 Compared with `Eval.whole_run_accounting`, no instrumented semantics is needed: the machine's
 steps are already the events.
@@ -223,9 +223,10 @@ private theorem pop_kinds_eq {S S' : RPeriphs K St} (h : ∀ x, (S' x).kind = (S
 
 /-- **Whole-run accounting on the machine.**  The cost of any run — any schedule, any hardware
 behaviour, any timeouts — is the sum of its charge events; every event charges a population
-with the same devices as the start (the active member, if any, pays its transition or spawn
-cost once, every passive member its background cost once, nobody else is charged); and the run
-ends with the same devices. -/
+with the same multiset of kinds as the start (the active member, if any, pays its transition or
+spawn cost once, every passive member its background cost once, nobody else is charged); and
+the run ends with the same multiset of kinds.  (Ambient entries carry no name, so this is stated
+for kinds.) -/
 theorem Steps.accounting {c c' : Config K St R} {q : R} (h : Steps P M Ψd A c q c') :
     ∃ L : List (MEvent K St R), q = MEvent.total M L ∧
       (∀ ev ∈ L, ev.pop.map Prod.fst = (pop c.D A).map Prod.fst) ∧

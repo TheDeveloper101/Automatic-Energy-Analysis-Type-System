@@ -14,15 +14,17 @@ relates the two.
 * **Devices and the store.**  Every peripheral is a device, named by the handle that declared it
   in the program (`Dev := Var`).  The store `D : RPeriphs K St` maps each device to its kind and
   current state.  There is one store for all threads and activations, so the *population* of
-  `Heliod.Accounting` is simply `entries(D) + A`: every step charges the background of all
-  devices (`bg(D) + bg(A)`), except that the device a step moves pays its transition instead.
+  `Heliod.Accounting` is simply `entries(D) + A`: every charging (ticked) step charges the
+  background of all devices (`bg(D) + bg(A)`), except that the device a step moves pays its
+  transition (or, at a spawn, the spawn cost) instead.
 * **Activations** (`Act`): one per function call or thread body — its own memory `σ` (per-frame
   memory, as in `Eval`), handle map `H` (handle name ↦ device), thread-id map `T` (`tid` name ↦
   runtime thread id), control stack `ctl`, and, for a called function, the return expression and
   the caller's target variable.
 * **Segments** (`Seg`): the paper's single stack `C` of frames, grouped by thread.  The top
-  segment is the running thread; the last is `main`.  A thread, once scheduled, runs on top until
-  it finishes or its awaiter's timer expires (the paper's stack discipline).
+  segment is the running thread; the last is `main`.  A scheduled thread runs on top until it
+  finishes, another pending thread is scheduled above it, or its awaiter times out
+  (E-Timeout-Running).
 * **Thread pool**: runtime thread id ↦ captured device, body, closure memory, handle name, and
   status (`pending` — spawned, not yet scheduled; `running`; `done`).
 * **Clock** `K`.
@@ -44,7 +46,7 @@ step (`Config.drain`).  As in the paper, timers count *down*: a waiting frame ho
 budget `rem` (initially `n`), each ticked step lowers it by `K` (truncated subtraction), waiting
 continues while `0 < rem`, and the await times out once `rem ≤ 0`.
 
-## Departures from the paper (see `TODO.md`)
+## Departures from the paper (full list in `PAPER_DIFFERENCES.md`)
 
 * Per-activation memory, closures for async bodies (copy of the spawner's memory).
 * Runtime thread ids are fresh numbers bound to the `tid` name in the spawning activation, so
@@ -64,8 +66,8 @@ abbrev ThreadId := Nat
 inductive Ctl (St R : Type) where
   /-- A command to execute. -/
   | cmd (c : Cmd St R)
-  /-- `await•`: waiting for runtime thread `id` (bound to name `tid`) with time budget `n`,
-  remaining budget `rem`, and fallback `fb`. -/
+  /-- `await•`: waiting for runtime thread `id` (bound to name `tid`) with remaining budget
+  `rem` (initially the timeout `n`) and fallback `fb`. -/
   | awaitW (tid : Var) (id : ThreadId) (rem : R) (fb : Cmd St R)
 
 /-- An activation: a function call's or thread body's local state. -/

@@ -718,8 +718,7 @@ theorem Eval.slack_decomposition (hM : M.WF) (hΨv : SigsValid M Ψd Ψ)
 omit [IsOrderedRing R] in
 /-- **Exactness when there is no slack.**  If every recorded term has `typed = actual` — e.g.
 all contexts along the path pin down the states, the path takes the costlier branch at each
-`if`, and no clock is merged — the summary is exactly the path's cost.  (The earlier
-"tightness under conditions" is this corollary.) -/
+`if`, and no clock is merged — the summary is exactly the path's cost. -/
 theorem SlackRun.exact {Γ Δ c Γ' Δ' Q F A S Kc S' q K' L}
     (hL : SlackRun P M Ψ Ψd Γ Δ c Γ' Δ' Q F A S Kc S' q K' L)
     (h0 : ∀ i ∈ L, i.typed = i.actual) : Q Kc (ambBg M A) = q := by

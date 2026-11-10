@@ -83,8 +83,7 @@ structure WF (P : Platform K St) : Prop where
   every state reachable by hardware alone.  (Lean addition; the paper applies `HWReach` once.) -/
   hwReach_closed : ∀ k s s', s' ∈ P.hwReach k s → P.hwReach k s' ⊆ P.hwReach k s
 
-/-- Downgrade sources and targets are declared states.  Used later to show that typing keeps
-every peripheral's possible-state set inside its carrier. -/
+/-- Downgrade sources and targets are declared states.  (Currently unused.) -/
 theorem WF.dg_mem {P : Platform K St} (hP : P.WF) {k : K} {s' s : St} (h : P.dg k s' s) :
     s ∈ P.states k ∧ s' ∈ P.states k :=
   hP.le_mem k s s' (hP.dg_lt k s' s h).1

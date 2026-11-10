@@ -39,9 +39,10 @@ member appears exactly once.
 
 4. **Whole runs** (`Eval.whole_run_accounting`): an instrumented semantics `ETrace`, faithful to
    `Eval` in both directions (`ETrace.toEval`, `Eval.toTrace`), records a run as a list of charge
-   events.  The run's cost is the sum of the events, and *every* event splits a population with
-   the run's initial devices into one optional mover (charged its transition) and the rest (each
-   charged background), so every device is charged exactly once per event (`ETrace.pop_kinds`).
+   events.  The run's cost is the sum of the events.  Each event splits its population into one
+   optional mover (charged its transition) and the rest (each charged background), so each
+   member is charged exactly once per event (by construction of `Event`); and every event's
+   population has the same multiset of kinds as the run's start (`ETrace.pop_kinds`).
 -/
 
 variable {K St R : Type}
@@ -154,8 +155,8 @@ theorem Eval.kind_eq [DecidableEq St] {M : CostModel K St R} {Ψ : FCtx K St R} 
   | call _ _ hp _ _ _ _ => exact kind_set hp _
 
 /-- **Conservation of the population's kinds.**  The multiset of peripheral kinds in
-`pop S A` is invariant under any run: no peripheral is created, lost or duplicated, so the
-population being charged at the end is the same set of devices as at the start. -/
+`pop S A` is invariant under any run: no peripheral is created, lost or duplicated, up to its
+kind.  (Ambient entries carry no name, so this is stated for kinds, not device identities.) -/
 theorem Eval.kinds_conserved [DecidableEq St] {M : CostModel K St R} {Ψ : FCtx K St R} {A σ S Kc c σ' S' q K'}
     (h : Eval M Ψ A σ S Kc c σ' S' q K') :
     (pop S' A).map Prod.fst = (pop S A).map Prod.fst := by
@@ -468,9 +469,9 @@ theorem ETrace.pop_kinds {M : CostModel K St R} {Ψ : FCtx K St R} {A σ S Kc c 
       rw [hb.toEval.kinds_conserved, pop_call hp]
 
 /-- **Whole-run accounting.**  The cost of any run is the sum of its charge events, and every
-event charges a population with the same devices as the run's start: the active member (if any)
-pays its transition cost once, every passive member pays its background cost once, and nobody
-else is charged. -/
+event charges a population with the same multiset of kinds as the run's start: the active
+member (if any) pays its transition cost once, every passive member pays its background cost
+once, and nobody else is charged. -/
 theorem Eval.whole_run_accounting {M : CostModel K St R} {Ψ : FCtx K St R}
     {A σ S Kc c σ' S' q K'} (h : Eval M Ψ A σ S Kc c σ' S' q K') :
     ∃ L, ETrace M Ψ A σ S Kc c σ' S' L K' ∧ q = Event.total M L ∧

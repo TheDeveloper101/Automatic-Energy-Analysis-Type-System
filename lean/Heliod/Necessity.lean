@@ -9,8 +9,9 @@ slack terms.  This file shows that the `state` terms — the ones caused by mult
 contexts — are *necessary* given the information in the context, and arise only from a known
 set of sources.  See `IMPRECISION.md` for the examples.
 
-1. **Local attainment** (`PCtx.bg_attained`, `PCtx.trans_attained`).  Every typed charge of a
-   step is the actual charge for *some* runtime state consistent with the context at that point:
+1. **Local attainment** (`PCtx.bg_attained`, `PCtx.trans_attained`).  For contexts with
+   non-empty state sets, every typed charge of a step is the actual charge for *some* runtime
+   state consistent with the context at that point:
    * `cost(Δ)` (the background charge of `let`, the condition of `if`, `clock`, the `match` step
      with `Δ[p : {s}]`, a call's argument step, a return step, and — for `Δ ∖ p` — the ambient
      instantiation of a call) is `bg(S)` for a worst-case `S ⊨ Δ`;
@@ -23,12 +24,12 @@ set of sources.  See `IMPRECISION.md` for the examples.
 2. **No uncertainty, no state slack** (`PeriphsOK.bg_eq_of_pinned`, `maxTrans_singleton`).  If
    the context pins down every peripheral (`PCtx.Pinned`: single-state sets), the typed charge
    *is* the actual charge, so the `state` term there is `0`.
-3. **Origin of uncertainty** (`Typed.pinned`).  Starting from a pinned context, typing produces
-   a pinned context unless the command contains an `if` (whose join merges states) or calls a
-   function with several possible output states; `match` with distinct arm states on a pinned
-   handle selects a single arm and merges nothing.  Contrapositively, a multi-state context — the
-   only cause of nonzero `state` slack — arises only from a multi-state function input, a merge
-   after a branch, or a multi-state call output.
+3. **Origin of uncertainty** (`Typed.pinned`).  If every signature has a single output state,
+   then starting from a pinned context, a command with no `if` and whose `match`es have distinct
+   arm states ends in a pinned context: `match` on a pinned handle selects a single arm and merges
+   nothing.  Contrapositively, a multi-state context — the only cause of nonzero `state` slack —
+   arises only from a multi-state function input, a merge after an `if`, a `match` with repeated
+   arm states, or a call to a function with several possible output states.
 -/
 
 variable {K St R : Type} [DecidableEq K] [DecidableEq St]
@@ -223,7 +224,8 @@ mutual
 merge-free command (no `if`; `match` with distinct arms) typed from a pinned context ends in a
 pinned context.  Contrapositively, multi-state contexts — the only cause of nonzero `state`
 slack — come only from a multi-state starting context (a function's input states), a merge
-after an `if`, or a call with several possible output states. -/
+after an `if`, a `match` with repeated arm states, or a signature with several possible output
+states. -/
 theorem Typed.pinned (hΨ1 : ∀ g sig, Ψ g = some sig → ∃ s, sig.sOut = {s})
     {Γ Δ c Γ' Δ' Q F} :
     Typed P M Ψ Γ Δ c Γ' Δ' Q F → c.NoBranch → Δ.Pinned → Δ'.Pinned

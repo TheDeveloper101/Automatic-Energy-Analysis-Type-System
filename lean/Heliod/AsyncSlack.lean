@@ -8,13 +8,15 @@ gap exactly: the bound is the run's cost plus a list of **slack items** released
 
   `Q K₀ 0 = q + Σ items`.
 
-Each item has a kind and an amount that is a typed quantity minus an actual one, at the step that
-released it (`ASlack.Spec`, `AsyncConfig.lean`).
+Each item has a kind and an amount, specified at the step that released it (`ASlack.Spec`,
+`AsyncConfig.lean`).  For the charge kinds the amount is a typed charge minus the actual one;
+`fallback` and `abandon` are typed quantities; the specifications of `wait` (a multiple of the
+frame's typed rate) and `clock` (`g f₂ − g f₁` for some monotone `g` and `f₁ ≤ f₂`) are weak.
 
 **Schedule kinds** (B2), released by the `await` cases:
 * `wait` — unused waiting allowance of `main`'s waiting frame at its typed per-tick rate
-  (`WaitRate`): while a thread runs above the frame, by a waiting tick's rounding, and in full
-  at the join;
+  (`WaitRate`): at `awaitStart` when `n = 0`, while a thread runs above the frame, by a waiting
+  tick's rounding, and in full at the join;
 * `fallback` — the summary of a fallback that never ran (`FallbackSum`);
 * `abandon` — the reservation of a thread abandoned at a timeout (`AbandonSum`).
 
@@ -66,8 +68,7 @@ variable [IsOrderedRing R] [CanonicallyOrderedAdd R] [Sub R] [OrderedSub R]
 variable {P : Platform K St} {M : CostModel K St R}
 
 /-- **Runs release slack**: along any run from a typed configuration with potential `Φ`, the
-cost, plus the async slack items released by its steps, plus the final potential, is at most
-`Φ`.  Each item is specified (`ASlack.Spec`) at the step of the run that released it. -/
+cost, plus the async slack items released by its steps, plus the final potential, equals `Φ`.  Each item is specified (`ASlack.Spec`) at the step of the run that released it. -/
 theorem CfgTyped.stepsS {Ψ : SigCtxA K St R} (hM : M.WF)
     (hΨ : ∀ g sig, Ψ g = some sig → SummaryMono sig.cost sig.clk) {Ψd : FCtx K St R}
     (hP : P.WF) (hΨc : SigsClosedA P Ψ) (hΨd : SigsDerivedA P M Ψd Ψ)

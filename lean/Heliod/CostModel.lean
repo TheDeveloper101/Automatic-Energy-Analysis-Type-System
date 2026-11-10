@@ -38,7 +38,8 @@ and states that "all of the costs are scaled by the current clock frequency `f`"
 /-- The cost annotations of a program, for peripheral kinds `K`, states `St`, domain `R`.
 
 * `stateCost k s` — `cᵢ`, cost of a peripheral of kind `k` actively being in state `s`
-  (used for `C_unstable` while a peripheral is captured by hardware);
+  (currently unused: T-Await charges a captured peripheral's background cost, see
+  `PAPER_DIFFERENCES.md` section 5.5);
 * `bgCost k s` — `cbᵢ`, background cost of state `s` (used by `cost(Δ)`);
 * `transCost k s s'` — `cost(s, s')`, used for both `transition` and `downgrade`;
 * `varCost`, `valCost`, `binopCost op` — expression evaluation costs;
@@ -85,7 +86,8 @@ def maxSpawn (M : CostModel K St R) (k : K) (S : Finset St) : R :=
   S.sup (M.spawnCost k)
 
 /-- `C_unstable(p : S)`: the worst active cost over every state a captured peripheral may be in,
-i.e. `max_{s ∈ S ∪ HWReach(S)} cₛ`.  Charged per tick while an `await` is waiting. -/
+i.e. `max_{s ∈ S ∪ HWReach(S)} cₛ`.  Not used by the rules: T-Await charges `maxBg` over the
+captured states (see `PAPER_DIFFERENCES.md` section 5.5). -/
 def unstableCost [DecidableEq St] (P : Platform K St) (M : CostModel K St R) (k : K)
     (S : Finset St) : R :=
   (S ∪ S.biUnion (P.hwReach k)).sup (M.stateCost k)

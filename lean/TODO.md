@@ -1,125 +1,73 @@
-# Heliod Lean mechanization — status
+# Heliod Lean mechanization: status
 
-## Done (builds, no `sorry`)
-- `Heliod/Platform.lean` — peripheral kinds, state order, downgrade policy, stable/HWReach, `Platform.WF`.
-- `Heliod/Syntax.lean` — types, values, binops, expressions, commands (incl. async/await), match arms, function decls, programs.
-- `Heliod/CostModel.lean` — cost annotations, `CostModel.WF` (clock-cost monotonicity), max helpers + 4 small lemmas.
-- `Heliod/Contexts.lean` — `Γ` (TCtx), `Δ` (PCtx = `Var →₀ PEntry`), join/erase/set, `cost(Δ)`, expression typing + cost; simp lemmas for lookups/erase/join and `cost(Δ)` (`bg_set`, `bg_single`, `bg_zero`, `erase_join`, …).
-- `Heliod/Typing.lean` — **cost-summary** judgment `Typed P M Ψ Γ Δ c Γ' Δ' Q F` (`Q f b`: cost at entry clock `f`, ambient background `b`; `F f`: exit clock), mutual `ArmsTyped`, `FunSig`/`SigCtx`, `FunDeclTyped` (T-FunDecl), `DeclsTyped`, `Program.Typed`. Definitions only.
-- `Heliod/Semantics.lean` — big-step cost semantics `Eval` for the sync fragment (per-frame memory, exact peripheral states, ambient multiset `A`), `Program.Eval`.
-- `Heliod/Examples/LogData.lean` — writeup's `log_data`: `P_wf`; `logData_typed` gives `log_data`'s summary as a closed formula in `f` and `b` (typed once, parametric in callers); `prog_typed` shows `main` instantiates it at ambient `b + bg(aux)` and equals `expectedCost` at clock 1.
-- `Heliod/Examples/Match.lean` — `match` with differing arm results; `settle_typed` summary + `prog_typed`.
-- `Heliod/Examples/Async.lean` — async example (radio send while measuring): `main_typed` derives `main`'s `TypedA` summary `mainCost` (transient transition, spawn with body paid at ambient `b + amb`, window bound `amb = maxBg sensor {Off, Measure}`, envelope `V = {Off, Tx, Done}`, await with waiting ticks and a `match` fallback narrowed per arm), no thread pending at the end; `prog_typed` (`Program.TypedA`); `cost_bound`: every machine run costs at most `mainCost K₀ 0` (via `soundnessA`). Finding: the fallback must handle `Off` (typed from `V`, which contains the body's exit state), so a plain `downgrade` does not type; the paper types the fallback from the spawn states and misses the already-finished case.
-- `Heliod/AsyncTyping.lean` — async typing `TypedA` / `ArmsTypedA`, thread contexts, `FunDeclTypedA`, `Program.TypedA`. Definitions only.
-- `Heliod/Machine.lean` — small-step machine: global device store, per-activation memory, thread segments, pool, preemption, hardware steps, count-down timers; `ActStep` (steps of the running activation alone).
-- `Heliod/Adequacy.lean` — machine ↔ `Eval` for the sync fragment, both directions; `Program.MRun.soundness` (sync cost soundness on the machine).
-- `Heliod/AsyncSoundness.lean`, `Heliod/AsyncInvariants.lean`, `Heliod/AsyncConfig.lean` — async soundness pieces 1–3c (see `ASYNC_PROOF_PLAN.md`): every machine step of a typed configuration pays for itself (`CfgTyped.mstep`, `CfgTyped.steps`).
-- `Heliod/AsyncProgram.lean` — **`Program.MRun.soundnessA`**: async cost soundness for whole programs on the machine (signature facts from declarations, typed initial configuration).
+Everything below builds with no `sorry`. The main theorems depend only on `propext`,
+`Classical.choice` and `Quot.sound`. The default target (`lake build`) covers every file under
+`Heliod/`, via the glob in `lakefile.toml`.
 
-## Proved in `Heliod/Soundness.lean`
-- `Typed.shape_eq` / `ArmsTyped.shape_eq` — typing preserves handles and kinds of `Δ` (helpers: `shape_set_set`, `shape_set_of`, `shape_join`).
-- `Typed.mono` / `ArmsTyped.mono` — derived summaries are monotone in `f` and `b` (uses `CostModel.WF`).
-- Agreement lemmas: `HasTy.eval`, `MemOK.bind`/`mono`, `TCtx.Sub`, `PCtx.Le` (+ `le_join_left/right`), `PeriphsOK.mono/at/set/erase/bg_le`, `ArmsTyped.find`, `SigsValid.mono`; runtime lemmas in `Semantics.lean` (`RPeriphs.set_apply`/`erase_apply`/`set_eq_self`, `ambBg_add_entries`).
-- **`soundness`** — actual cost `≤ Q K (bg A)`, exit clock `≤ F K`, final state agrees with output contexts; assumes `SigsValid`.
-- **`eval_total`** (+ `ArmsTyped.arm_eval_total`) — well-typed commands always run to completion (sync termination / type safety); assumes `SigsValid` and `M.WF`.
-- **`FunDeclTyped.valid`**, **`DeclsTyped.sigsValid`**, **`Program.sigsValid`** — declarations typed in order yield valid signatures.
-- **`Program.soundness`** — a well-typed program run from clock `K₀` costs at most `Q K₀ 0`.
-- `#print axioms` for all four main results: only `propext`, `Classical.choice`, `Quot.sound`. **The sync fragment has no `sorry`.**
-
-
-## Proved in `Heliod/Accounting.lean` — accounting (A), semantic side, no `sorry`
-- Population `pop S A = entries(S) + A` (visible + ambient peripherals).
-- `Eval.kind_eq` / `Eval.kinds_conserved` — runs never create, drop or re-kind a peripheral; the multiset of kinds in the population is invariant.
-- `pop_call` — a call's body runs with exactly the caller's population (parameter + new ambient re-partition it).
-- `charge_static` — assign/if/clock/match and the call's argument/return evaluations charge `K · Σ_{m ∈ pop} bgCost m` (each member once).
-- `charge_move` / `pop_after_move` — transition/downgrade: `pop = (k,s) ::ₘ rest`, charge `K·(transCost k s st + bg(rest))` (mover pays transition instead of background); afterwards the mover is in `pop` with its new state.
-- **Whole runs:** `ETrace` (instrumented semantics recording charge events) is faithful to `Eval` (`ETrace.toEval`, `Eval.toTrace`). **`Eval.whole_run_accounting`**: a run's cost is the sum of its events; *every* event charges a population with the run's initial devices (`ETrace.pop_kinds`), split into one optional mover (transition cost) and the rest (background), so each device is charged exactly once per event.
-
-## Proved in `Heliod/Slack.lean`, `Necessity.lean`, `SlackProgram.lean` — accounting (B), no `sorry`
-- **Slack decomposition** (`Heliod/Slack.lean`): path semantics `Path` + `Eval.toPath`; slack judgment `SlackRun`/`ArmsSlack` (kinds: state, branch, arm, clock, ambient, signature); faithfulness `SlackRun.toTyped`/`toPath`; identity `SlackRun.decompose` (`Q K (bg A) = q + Σ δ`, given `actual ≤ typed` per item). Also done: existence `SlackRun.exists` (every typed path has a slack derivation with `actual ≤ typed`, assuming `SigsDerived`), `slack_decomposition` / `Eval.slack_decomposition`, exactness corollary `SlackRun.exact`. Necessity done in `Heliod/Necessity.lean`: `PCtx.bg_attained`, `PCtx.trans_attained` (local attainment), `PeriphsOK.bg_eq_of_pinned` (pinned ⇒ no state slack), `Typed.pinned` (origin of uncertainty). Programs (`Heliod/SlackProgram.lean`): `Typed.weaken`, `DeclsTyped.sigsDerived`, `Program.sigsDerived`, `Program.initPinned`, **`Program.slack_decomposition`** / `Program.Eval.slack_decomposition`. Accounting (B) is complete. Examples and discussion in `IMPRECISION.md`.
-
-## Proved in `Heliod/AsyncAccounting.lean` — async accounting (A) on the machine, no `sorry`
-- Machine events `MEvent` (clock, CPU, optional mover — transition or spawn — and passive rest).
-- **`Step.accounting`**: every machine step is untimed and free (store unchanged, or a hardware move of a pending/running thread's device), or one charge event at the clock in force whose population is *exactly* `pop D A` — the global store, so devices of `main`, suspended callers and captured devices are all charged, each once — and whose post-population is the store after the step.
-- `Step.kind_eq`, `MStep.kind_eq`, `Steps.kind_eq`: no step creates, drops or re-kinds a device.
-- **`MStep.accounting`**: as above, and after a charge event every waiting timer is lowered by exactly the event's clock.
-- **`Steps.accounting`**: any run's cost is the sum of its events; every event charges a population with the start's devices.
-
-## Proved in `Heliod/Embed.lean` — sync typing embeds into async typing, no `sorry` (2026-11-10)
-- **`Typed.toA` / `ArmsTyped.toA`**: a `Typed` derivation is a `TypedA` derivation (not frozen, no pending threads, some visited context `W`) with the same output contexts and summaries. **`FunDeclTyped.toA`**, **`DeclsTyped.toA`**: sync signature `sig` becomes `⟨sig, visit, false⟩` with `visit` read off the body's `W`. **`Program.Typed.toA`**: sync-typed programs are `Program.TypedA`-typed with the same `Q`, `F`.
-- **Side condition: the program's declared states are stable** (handles' initial states, functions' `sIn` / `sOut`). Sync typing never introduces transient states (transition/downgrade targets are stable), so every context in the derivation is stable (`PCtx.Stable`), and then `match` narrowing to `hwClose {st}` is `{st}` and signatures are closed under hardware steps. Without it `TypedA` may give a larger (still sound) summary.
-- Corollaries for sync programs on the machine: **`Program.Typed.typeSafety`** (new) and `Program.Typed.soundnessA` (the bound via the async proof).
-
-## Async slack (B) — B1, B2, B3 done (2026-11-10), no `sorry`
-- **Done:** `Heliod/AsyncSlack.lean` — **`Program.slack_decompositionA`**: `Q K₀ 0 = q + Σ items + r` for any run; each item is a typed quantity specified at the step that released it (`ASlack.Spec`, defs in `AsyncConfig.lean`): `wait` (unused waiting allowance × the frame's typed rate `cost(Δ) + b`, `WaitRate`; released by draining while a thread runs, by a waiting tick's rounding, and in full at `awaitDone`), `fallback` (an unrun fallback's summary, `FallbackSum`), `abandon` (an abandoned thread's `ThreadOK` contribution, `AbandonSum`). Per step: `CfgTyped.mstepS` (`mstep` is now its corollary); runs: `CfgTyped.stepsS`. The case lemmas `awaitWait`, `awaitDone`, `timeout`, `drain` now return what they release.
-- **B3 done (2026-11-10):** per-step charge items, split per handle (`PeriphsOK.bg_split`, `handleItems`, `ActOK.charge_split` / `charge_split_move`): `state`, `envelope` (captured handle), `transition`, `ambient` / `window` (thread layer); structural items `branch`, `arm`, `clock`. Specified per activation by `LSpec` / `LFact` (typing + agreement + facts), lifted by `ASlack.spec_local`. Threaded through `CtlTyped.step`, `StackOK.step`, `step_main`, `step_thread`, `step_act`, `mstepS`. Ambient slack is released per step, not per call as in the sync `SlackRun`.
-- **Residual itemized (2026-11-10):** the spawn step's charge (new kind `spawn`; `ActOK.charge_split_spawn`), a waiting tick's charge (`awaitWait`), the clock bound after a join / timeout (`awaitDone`, `timeout`) and the wait allowance dropped at a timeout, `awaitStart` rounding (`wait`), and the `clock` slack `StackOK.retop` drops on a caller's continuation when the awaiting / spawning activation is a callee. Local-kind items are specified at the head activation of the configuration before or after the step (`HeadSpec`, `ASlack.spec_local` / `spec_post`).
-- **Exact decomposition done (2026-11-10):** every step lemma is an equality (`CtlTyped.step`, `StackOK.step`, `StackOK.retop`, the case lemmas, `mstepS`, `stepsS`); dropped thread contributions are zero by typing (`StackOK.finished_zero`; `done` threads via `ThreadOK`); `CfgTyped.final_zero`. **`Program.slack_decompositionA`: `Q K₀ 0 = q + Σ items`, no residual.** The `≤` forms (`CfgTyped.mstep`, `CfgTyped.steps`) remain as corollaries.
-- **B4 Parts 1 and 2 done (2026-11-10), `Heliod/AsyncNecessity.lean`:**
-  - *Local necessity* (Part 1): `LFact.charge_attained` (a `state` / `envelope` / `transition` / `spawn` item is zero for a worst state of its typed set), `LFact.charge_zero_of_worst`, `charge_zero_of_pinned`, `LFact.amb_zero_of_tight` (an `ambient` / `window` item vanishes when the layer's bound is tight; for a thread that needs `amb = cost(win ∖ p)`).
-  - *The await gap* (Part 2a): `Config.Waits`; `mstepS` now also says a step after which `main` no longer waits released a `fallback` or `abandon` item; `CfgTyped.stepsR`; **`Program.await_gap`**: in a complete run through a waiting configuration, some `fallback` (joined) or `abandon` (timed out) item is released and `q + item ≤ Q K₀ 0`. Every await releases its fallback or the thread's *remaining* reservation (which can be small: a thread cut off just before its last step).
-  - *Rounding* (Part 2b, with `[AddLeftReflectLE R]`): `waitAllow_tick_exact` (a waiting tick with budget to spare releases no wait slack), `waitAllow_last` / `waitAllow_drain_last` / `waitAllow_exhaust_pos` (the step that exhausts the budget releases the leftover `rem > 0`): `(n + f)·w` is never consumed exactly.
-- **B4 Part 3 done (2026-11-10):** `Steps.waiting`, **`Steps.never_schedule`** (Archimedean `R`, positive clock): from `main` waiting on a pending thread with budget `rem`, the never-schedule run waits `m` ticks (`rem ≤ m·K ≤ rem + K`), times out without the thread ever running (body reservation fully abandoned) and runs the fallback; `waiting_cost_bounds`: with devices at the frame's worst states the waiting costs between `rem·w` and `(rem + K)·w`, so T-Await's waiting charge is attained up to one tick. Machine-level existence; not yet connected to the slack items of that run (the items' specs do not record the tick formula).
-- **Decided (2026-11-10):** do B1 (decomposition along runs) + B2 (schedule kinds: wait, fallback, abandon) now; envelope and window slack are released inside local steps (`StackOK.step`), so they go with B3; full classification of local steps into the sync kinds (B3) and schedule necessity (B4) later. The narrowing refactor is not a prerequisite: the `PCtx.Widen` links are the sync joins, so local slack is attributed as in `SlackRun`.
-- **T-Await's imprecision (corrected 2026-11-10).** From spawn to the end of the await the typing charges `Q_a + (n+f)·w + Q_fb`. This sum is *nearly attainable*: let `main` wait most of the budget, run the thread until just before its last step, time out, run the fallback — that pays almost all of `Q_a`, the waiting not overlapped by the body, and `Q_fb`. So a `max(join, timeout)` form would be **unsound** (an earlier note here proposed it; dropped). What the sum over-counts is the *overlap* (the body's running time also drains the waiting budget, about `d·w` for duration `d`; these are the `wait` items released while a thread runs), the cut-off step, and the rounding of Part 2b. The principled improvement would charge waiting `(n − d_min + f)·w` with `d_min` a lower bound on the body's duration — a new judgment component plus a potential invariant for the thread's guaranteed running time; gain about `d_min·w` per await. Not planned unless the paper needs await-heavy programs to be tight.
-- **Narrowing refactor (reconsidered 2026-11-10): not planned.** It would change no result (the bound comes from the typing; the links match the sync joins, so slack attribution already agrees with `SlackRun`); it would only move state slack into `branch` items, at the cost of a mutual lemma over every `TypedA` rule and a rework of `ThreadOK`. A standalone narrowing lemma for the *sync* typing ("more precise inputs never cost more") remains a possible paper-friendly metatheorem.
-
-## Open items for the sync fragment
-- Possible cleanup: `eval_total` takes `hM : M.WF` only because its `seq` case reuses `soundness` for state agreement; a cost-free *preservation* lemma would remove it.
-- Possible addition: `Program.eval_total` (whole programs terminate) — immediate from `eval_total` + `Program.sigsValid` + `Program.initOK`.
-
-## Parametricity examples (`Heliod/Examples/Parametricity.lean`, done, no `sorry`)
-- `logDataCost_ambient`: ambient enters `log_data`'s cost linearly, `6·f·e`.
-- `callers_differ_by_ambient`: same `log_data`, callers with/without two extra sensors; costs differ by exactly `7·f·(bg Off + bg Measure)`.
-- `progN_typed`: `main → wrap → log_data`; `main`'s extra sensor is charged inside `log_data`, two calls down.
-- `branchy_exact`: branches of unequal duration; summary keeps ambient inside the `max` (concrete model: bound 20 vs 30 for the cost/duration split).
-- Still to do: an example exercising `clock` (clock-parametric summaries, `clockCost`).
+Other documents:
+* `PAPER_DIFFERENCES.md`: every departure from `typing.tex` / `writeup.tex`, for the paper
+  author.
+* `IMPRECISION.md`: where the bounds are not tight, and the slack decomposition.
+* `ASYNC_PROOF_PLAN.md`: the design of the async soundness proof (configuration typing).
 
 ## Build workflow
-- Edit in OneDrive; build on the WSL mirror with `scripts/mirror-build.sh` (~25 s vs ~7 min per file). With a file argument it runs `lake build Heliod.X`, rebuilding stale dependencies (plain `lake env lean` would use stale imports).
 
-## Roadmap
-1. ~~Syntax + cost model~~
-2. ~~Checking type system, sync fragment~~ — sanity-checked by `Examples/LogData.lean` (seq, let, if, transition, downgrade, call, ambient instantiation) and `Examples/Match.lean` (match/arms, join of differing arm states). `clock` is not yet exercised by an example.
-3. ~~Cost semantics for sync fragment; cost soundness, termination; accounting (A) and slack decomposition (B)~~ (done, no `sorry`).
-4. Async / await / HW steps. Typing, machine and sync adequacy done. Async soundness by a potential over typed machine configurations (status and design in `ASYNC_PROOF_PLAN.md`): pieces 1–3c done, no `sorry`. 3d done: **`Program.MRun.soundnessA`** (`AsyncProgram.lean`) — a program well typed under `TypedA`, run to completion on the machine from `K₀`, costs at most `Q K₀ 0` for every schedule and hardware behaviour; axioms only `propext`, `Classical.choice`, `Quot.sound`. Staging restriction lifted (2026-11-09): calls are allowed while threads are pending. Machine type safety done (2026-11-10): **`Program.typeSafetyA`** (`AsyncSafety.lean`) — every configuration a `TypedA` program reaches is `Final` or can take an `MStep` (preservation `CfgTyped.steps`, progress `CfgTyped.progress`); same axioms. Embedding `Typed → TypedA` done (`Embed.lean`). Next (later): slack for async (accounting done 2026-11-10, `AsyncAccounting.lean`; slack decisions pending, see above). Narrowing refactor reconsidered and not planned (see above).
-5. State-inference system (α, Φ, symbolic costs, ⊎ join) and its relation to the checking system. **Started 2026-11-10, sync first, semantic formulation (B)**: constraints modelled by the state sets they denote; function summaries parametric in the entry state set (lazy concretization = instantiating at the caller's set). `Heliod/Inference.lean`:
-   - **`Typed.narrow` / `ArmsTyped.narrow` done** (narrowing: from `Γ₀ ⊇ Γ`, `Δ₀ ⊑ Δ` with non-empty state sets, a derivation with more precise outputs and no larger summaries; assumes signature summaries monotone and `sOut` non-empty).
-   - **`TypedI` / `ArmsTypedI` + `soundnessI` done** (inline typing: a call types the callee body from the caller's `Δ p`, no declared `sIn`/`sOut`; sound with no signature-validity hypothesis). Also `TypedI.shape_eq`, `TypedI.mono`, `ArmsTypedI.find`.
-   - **Precision done**: `Typed.toI` (checking → `TypedI` from any narrower context, outputs more precise, summaries no larger; the narrowing proof with the call case replaced), `SigsInline` / `BodyInline` (each declaration's body inline-types from any non-empty `S ⊆ sIn` within its signature), `DeclsTyped.sigsInline` (holds along the declarations), `Program.Typed.precision`.
-   - Note: `TypedI` derivations are finite, so recursive functions have none; the checking system (with `Typed` against the full `Ψ`) has the same restriction via `DeclsTyped` ordering.
-   - **Accepted entry states done**: `TypedI.narrow` / `ArmsTypedI.narrow`; `Accepts d S` (body inline-types from `S`, ret typed), `Accepts.mono` (downward closed), `entrySet d = {s | Accepts d {s}}`, `Accepts.subset_entrySet`, `Program.Typed.sigsInline`, `Program.Typed.accepts` (every non-empty `S ⊆ sIn` accepted; `sIn ⊆ entrySet`).
-   - **Finding: no largest typeable entry set.** Acceptance is not closed under union, since `match` intersects its arms' `Γ` (path-insensitive). `Heliod/Examples/EntrySets.lean`: `pick` accepts `{Idle}` and `{Measure}` but not `{Idle, Measure}` (`entrySet_not_accepted`). Inline typing does not need a single entry set (each call site types the body from its own states). A path-sensitive typing would be needed for union closure — out of scope.
-   - **`log_data` under inline typing done** (`Heliod/Examples/LogDataInline.lean`): `main_inline` (the call types the body from `temp ∈ {Idle}`; exact summary with `logDataCostIdle`, entry transition charged `tr Idle Measure` instead of the checking `max(tr Idle Measure, tr Measure Measure)`), `inline_le_check`, `cost_bound` (via `soundnessI`).
-   - Item 5 (sync) is complete. Possible follow-ups: async inline typing (`TypedAI`), or a path-sensitive variant for union-closed entry sets.
+Edit in OneDrive, and build on the WSL mirror with `scripts/mirror-build.sh` (about 25 s, versus
+about 7 min per file on OneDrive). With a file argument it runs `lake build Heliod.X`, which
+rebuilds stale dependencies.
 
-## Design decisions / questions for the paper authors
-- **Cost summaries.** The paper's `β : amb` / `cost(·)` holes make costs parametric in the caller's clock and in peripherals invisible to the current function (`C(β,f)[β ↦ Δ] = Σ_{p∈Δ} cost(p)·f`). Lean: a derivation yields `Q f b` and `F f`; functions are typed once (T-FunDecl) and instantiated at calls as `Q_g f (b + cost(Δ ∖ p))` (the paper's `q_f[Δ ∖ p]`). Exact pointwise (chosen over a cost/duration split, which over-approximates at branches of unequal duration). Also resolves the T-FunDecl/T-Call clock ambiguity: summaries are functions of the entry clock.
-- Should `HWReach(st)` contain only unstable states (prose says "reachable transient states")? Not imposed currently.
-- Paper's T-Call requires the body's final states to equal `s⃗₂`; Lean requires `⊆ s⃗₂`.
-- **Refined T-Match (2026-11-08):** only reachable arms (`stᵢ ∈ Δ(p)`) are typed and charged (`ArmsTyped` rules `cons` / `last` / `skip`). The paper types and charges every arm, so an expensive arm for a state that cannot occur inflates the bound.
-- **Match step charged per arm (2026-11-08):** each reachable arm's summary includes the `match` step with `p` narrowed, `f·(cost(Δ[p : {stᵢ}]) + b)`, inside the max over arms (was `max(arms) + f·(cost(Δ) + b)`). Never larger, still sound; makes a `match` on a multi-state handle tight.
-- `clockCost` must be monotone in its source frequency for summaries to be monotone (assumed in `CostModel.WF`).
-- The semantics charges expression cost `K·q_e` (the paper's E-rules evaluate expressions for free) — chosen so typing and semantics charge the same CPU costs.
-- Paper's single memory `M` lets a callee's locals overwrite the caller's; Lean uses per-frame memory.
-- Paper rule typos fixed in the Lean version: T-If missing `f` on the `c₁` premise; T-Let/T-Call output order `q, f` vs judgment; T-Var has no cost; no value rule; checking T-Call `Δ[p : s₂]` should be `s⃗₂`.
-- **Call / return charge background (2026-11-08):** E-Call charges `K·(q_e + bg(S) + bg(A))` for the argument and `Kb·(q_ret + bg(S_b) + bg(A_b))` for the return expression; T-Call charges `f·(q_e + cost(Δ) + b)` and T-FunDecl's summary adds `F f·(q_ret + cost(Δ_b) + b)`. Previously these expression costs were charged without background, leaving time in which no peripheral was charged (found while proving whole-run accounting). The paper's E-Call/E-Ret are free.
-- **Async / await (2026-11-08), departures from the paper's T-AsyncFun / T-Await-Timeout / T-Transition-Unstable** (`AsyncTyping.lean`):
-  - *Closure memory*: the async body runs in its own memory frame with copies of the values it reads; no shared memory (the paper's single `M` allows data races).
-  - *Window ambient, paid at the spawn (2026-11-09)*: the spawn charges the body's summary `Q_a f (b + amb)`, a closure paid for when it is created, where `amb` is a declared bound on the window ambient; the await checks `cost(win ∖ p) ≤ amb`, where `win` joins every main-thread context since the spawn. The tightest choice is `amb = cost(win ∖ p)`. (First version charged `Q_a` at the await; moved to the spawn so the soundness proof can give a pending thread its own reserved budget — same total.) The paper instantiates `Δ ∖ p` at spawn, which undercounts if the main thread moves its other peripherals to costlier states while the body runs.
-  - *Captured peripheral*: the main thread sees `Δ(p) = V`, the HW-closure of the states the body visits, so its steps charge `p` at `maxBg V`. The paper leaves `cost(cap(…))` undefined.
-  - *Frozen clock*: no clock change while a thread is pending, in the body or the main thread (calls then require `stableClock` functions). The paper allows the body to change the clock (`max(f, f_a, f_fb)`), which affects main-thread steps typed at `f`.
-  - *Await cost*: `(n + f)·(maxBg V + cost(Δ ∖ p) + b) + Q_fb` (the body `Q_a` is paid at the spawn). The paper's `max(q_a, q_fb + q_t)` omits waiting ticks when the body completes, and the body's partial cost when it times out.
-  - *Fallback typed from `V`*: after a timeout the body may have stopped anywhere; the paper types `c_fb` from the spawn states `s_i`.
-  - *HW steps*: `Platform.WF.hwReach_closed` (HWReach is closed under further HW steps); `match` arms narrow to `hwClose {st}`, since hardware may move a captured peripheral right after the match.
-  - *Functions*: `FunSigA` records `visit` (states the parameter passes through, observed by pending threads) and `stableClock`; a function may not leave a thread pending.
-- **Machine (2026-11-08)** (`Machine.lean`), choices beyond the paper's E-rules:
-  - *Devices*: a single global store of devices named by their declaring handles (`Dev := Var`); activations map handle names to devices. The population charged by every step is just "all devices + ambient", and returns need no copy-back.
-  - *Activations*: each call and thread body has its own memory, handle map and thread-id map; calls and returns are machine steps charging argument / return expression plus background, matching `Eval`.
-  - *Segments*: the paper's frame stack grouped by thread; a scheduled thread runs on top until it finishes or its awaiter times out (E-Timeout-Running).
-  - *Thread ids*: fresh runtime numbers bound to the `tid` name in the spawning activation.
-  - *Timers*: count *down* (remaining budget, truncated subtraction), as in the paper; drained by the pre-step clock after every ticked step.  (Originally elapsed time, since the cost domain had no subtraction; switched 2026-11-09 because the waiting-tick inequality needs cancellation otherwise.)  A waiting frame's allowance is `waitAllow rem f` (`rem + f`, or `0` once spent).
-  - *E-Call checks the device*: the parameter's device must hold a peripheral (as in `Eval`); well-typed programs always pass. Needed for reverse adequacy.
-- **Function signatures closed under hardware steps (2026-11-09, option A)**: `FunDeclTypedA` requires `hwClose(sIn) = sIn` and `hwClose(sOut) = sOut`. Reason: a function called from an async body on the captured peripheral runs while hardware may move that peripheral; with closed `sIn`, every context in its typing stays closed (`TypedA.hwClosed`). Cost: a function taking a peripheral in a transient state must also declare the states hardware can move it to from there (functions over stable states are unaffected); for calls on non-captured peripherals this over-approximates slightly (visible as state slack). Alternatives considered: a separate "captured" flag with `capSafe` signatures (more precise, more bookkeeping), or forbidding calls on the captured peripheral inside async bodies (too restrictive).
-- **No nested threads (2026-11-09, simplification 1, permanent)**: T-AsyncFun requires `fz = false`, so frozen code — async bodies, and functions called while a thread is pending — cannot spawn. Spawning from inside a thread seemed unwise in practice; it keeps every spawner on the main side.
-- **Calls while threads are pending (2026-11-09)**: T-Call allows a call while threads are pending (the callee must keep the clock fixed, `stableClock`, so it is frozen and cannot spawn). The soundness proof was first completed under a temporary restriction forbidding such calls, then generalized: the spawner may be suspended under frozen callees, its agreement kept by the callee layer under its view with the passed handle at `visit` (which pending threads' windows observe at the call).
+## What is proved
+
+| area | files | main results |
+|---|---|---|
+| definitions | `Platform`, `Syntax`, `CostModel`, `Contexts` | `Platform.WF`, `CostModel.WF`, contexts `Γ` / `Δ`, `cost(Δ)` |
+| checking typing (sync) | `Typing` | `Typed` / `ArmsTyped`, `FunDeclTyped`, `DeclsTyped`, `Program.Typed` |
+| big-step semantics (sync) | `Semantics` | `Eval`, `Program.Eval` |
+| sync soundness and termination | `Soundness` | `soundness`, `eval_total`, `Program.sigsValid`, `Program.soundness` |
+| sync accounting | `Accounting` | `Eval.whole_run_accounting`: every event charges each device once |
+| sync slack | `Slack`, `Necessity`, `SlackProgram` | `Program.slack_decomposition` (`Q K₀ 0 = cost + Σ δ`), local attainment, `Typed.pinned` |
+| async typing | `AsyncTyping` | `TypedA` / `ArmsTypedA`, `FunDeclTypedA`, `Program.TypedA` |
+| machine | `Machine`, `Adequacy` | small-step machine; machine ↔ `Eval` for the sync fragment, `Program.MRun.soundness` |
+| async soundness | `AsyncSoundness`, `AsyncInvariants`, `AsyncConfig`, `AsyncProgram` | `CfgTyped.steps`, **`Program.MRun.soundnessA`** (every schedule and hardware behaviour) |
+| async type safety | `AsyncSafety` | **`Program.typeSafetyA`** |
+| async accounting | `AsyncAccounting` | `Steps.accounting` |
+| async slack | `AsyncSlack`, `AsyncNecessity` | **`Program.slack_decompositionA`** (exact: `Q K₀ 0 = q + Σ items`), `Program.await_gap`, `Steps.never_schedule`, `waiting_cost_bounds` |
+| sync → async | `Embed` | `Typed.toA`, `Program.Typed.toA`, `Program.Typed.typeSafety` (for programs whose declared states are stable) |
+| state inference (sync) | `Inference` | `Typed.narrow`, `TypedI` + `soundnessI`, `Typed.toI` / `Program.Typed.precision`, `Accepts`, `entrySet`, `Program.Typed.accepts` |
+
+Examples (`Heliod/Examples/`):
+
+| file | what it shows |
+|---|---|
+| `LogData` | the writeup's `log_data`: closed-form summary, typed once and instantiated at the caller's ambient |
+| `Match` | `match` with arms ending in different states |
+| `Parametricity` | ambient enters linearly; the same function in different callers; ambient two calls deep; branches of unequal duration (`branchy_exact`) |
+| `Async` | radio send while measuring; `cost_bound` via `soundnessA`; the fallback must handle the already-finished state |
+| `LogDataInline` | `log_data` called from `Idle` is charged from `Idle` (lazy concretization) |
+| `EntrySets` | acceptance is not closed under union: no largest entry set |
+
+## Open items
+
+Possible next steps, none in progress:
+
+* **Async state inference**: an inline version of `TypedA`.
+* **Path-sensitive typing**: would make accepted entry sets closed under union
+  (`PAPER_DIFFERENCES.md` section 6.4).
+* **T-Await tightening**: charge waiting `(n − d_min + f)·w`, given a lower bound `d_min` on the
+  body's duration. This needs a new judgment component and a potential invariant for the
+  thread's guaranteed running time. Not planned unless await-heavy programs need tight bounds.
+* **`Steps.never_schedule`** is a machine-level existence result. It is not yet connected to the
+  slack items of that run, because the items' specifications do not record the tick formula.
+* **Example exercising `clock`**: summaries parametric in the clock, `clockCost`.
+* **Small cleanups:**
+  * `eval_total` takes `M.WF` only because its `seq` case reuses `soundness`; a cost-free
+    preservation lemma would remove it.
+  * `Program.eval_total` (whole programs terminate) is immediate from `eval_total`,
+    `Program.sigsValid` and `Program.initOK`.
+
+Decided against:
+
+* **Narrowing refactor of `TypedA`** (replacing the `PCtx.Widen` links in configuration typing
+  by narrowing). It would change no result and only move state slack into `branch` items.
+* **A `max(join, timeout)` form for T-Await.** It is unsound (`PAPER_DIFFERENCES.md`
+  section 5.5).

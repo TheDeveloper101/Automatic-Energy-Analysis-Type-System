@@ -4,8 +4,8 @@ import Heliod.Typing
 # Typing with async / await (hardware concurrency)
 
 `TypedA` extends the synchronous judgment `Typed` with the paper's T-AsyncFun,
-T-Await-Timeout and T-Transition-Unstable, following the design agreed with the user
-(2026-11-08); departures from the paper are listed in `TODO.md`.
+T-Await-Timeout and T-Transition-Unstable; departures from the paper are listed in
+`PAPER_DIFFERENCES.md`, section 5.
 
 `TypedA P M Ψ fz Γ Δ Θ c Γ' Δ' Θ' W Q F` reads: with clock changes forbidden if `fz`
 ("frozen"), starting from value context `Γ`, peripheral context `Δ` and **thread context** `Θ`,
@@ -36,7 +36,7 @@ interleaved with the main thread until `await tid`:
   frozen setting must go to functions marked `stableClock`.  So the whole window runs at the
   spawn clock `f`.
 * **Await.**  `await tid timeout[n] { c_fb }` costs at most `n + f` worth of waiting ticks
-  (`⌈n/K⌉` ticks of length `K` each), plus the fallback, which is typed from
+  (`⌈n/f⌉` ticks of length `f` each), plus the fallback, which is typed from
   `p ∈ V` (after a timeout the body may have stopped anywhere).  The result joins the body's
   exit states with the fallback's.
 * **Hardware steps.**  T-Transition-Unstable moves `p` to `hwClose {st} = {st} ∪ HWReach(st)`;
@@ -183,7 +183,7 @@ inductive TypedA (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R
   window (checked at the await).  The main thread continues with `p` captured, in the states
   `V` the body may visit (closed under hardware steps). -/
   -- `fz = false`: frozen code (async bodies, and functions called while a thread is pending)
-  -- cannot spawn; no nested threads (design decision 2026-11-09, simplification 1).
+  -- cannot spawn; no nested threads (`PAPER_DIFFERENCES.md` 5.8).
   | async {fz Γ Δ Θ tid p k S c Γb Δb Wb Qa Fa Sout Wp amb} :
       Δ p = .live k S → ¬ Θ.Captures p → Θ tid = none →
       (∀ s ∈ S, P.unstable k s) → P.hwClose k S = S →
@@ -248,7 +248,7 @@ end
 function cannot leave a thread running); it is frozen iff the signature promises a fixed clock;
 `visit` covers every state the parameter passes through.  Its input and output states must be
 closed under hardware steps (`HWReach`), so that the function is sound even when called from an
-async body on the captured peripheral (design decision 2026-11-09, option A). -/
+async body on the captured peripheral (`PAPER_DIFFERENCES.md` 5.10). -/
 structure FunDeclTypedA (P : Platform K St) (M : CostModel K St R) (Ψ : SigCtxA K St R)
     (d : FunDecl K St R) (sig : FunSigA K St R) : Prop where
   argTy : sig.argTy = d.argTy

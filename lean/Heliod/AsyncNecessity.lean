@@ -10,9 +10,10 @@ if no run attains it.  This file proves:
 
 **Part 1 — local necessity of the charge kinds** (the async counterpart of
 `Heliod.Necessity`).
-* *Attainment* (`LFact.charge_attained`): a `state`, `envelope`, `transition` or `spawn` item
-  is zero for a worst state of its typed set — the typed charge is the actual charge of some
-  state the typing allows, so no sound analysis knowing only that set can charge less.
+* *Attainment* (`LFact.charge_attained`): for a `state`, `envelope`, `transition` or `spawn`
+  item, the typed worst case over its set `T` is the actual cost of some state in `T`, so no
+  sound analysis knowing only `T` can charge less.  (For `state` / `envelope` items the theorem
+  also gives the amount, which would be zero had the device been in that state.)
 * *Zero conditions* (`LFact.charge_zero_of_worst`, `LFact.charge_zero_of_pinned`,
   `LFact.amb_zero_of_tight`): the item vanishes when the device is in a worst state, in
   particular when its typed set is a single state; an `ambient` / `window` item vanishes when
@@ -30,21 +31,26 @@ T-Await's `Q_a + (n + f)·w + Q_fb` is far from attainable (see Part 3).
 
 **Part 2b — the waiting allowance is rounded up** (for cost domains with additive cancellation,
 `[AddLeftReflectLE R]`, as `ℕ`, `ℚ≥0`, `ℝ≥0`) (`waitAllow_tick_exact`, `waitAllow_last`,
-`waitAllow_drain_exact`, `waitAllow_drain_last`).  While more than one tick of budget remains, a
-waiting tick consumes exactly one tick of the frame's allowance (its `wait` item is `0`); the
-tick that exhausts the budget releases the leftover budget `rem ∈ (0, K]` (times the frame's
-rate).  So T-Await's `(n + f)·w` is never consumed exactly by waiting: discrete ticks always leave
+`waitAllow_drain_exact`, `waitAllow_drain_last`).  These are identities about the allowance
+`waitAllow`; the `wait` items the steps release are specified only as multiples of the frame's
+rate (`ASlack.Spec`), so the link to the released items is by the proofs of the step lemmas,
+not a stated theorem.  While more than one tick of budget remains, a waiting tick consumes
+exactly one tick of the allowance; the tick that exhausts the budget leaves the leftover budget
+`rem ∈ (0, K]` unused.  So T-Await's `(n + f)·w` is never consumed exactly by waiting: discrete ticks always leave
 some of the allowance unused.
 
 **Part 3 — an adversarial schedule attains the waiting charge** (`Steps.waiting`,
 `Steps.never_schedule`, `waiting_cost_bounds`; for an Archimedean cost domain and a positive
 clock).  The schedule that never runs the awaited thread waits out the budget and times out:
 `m` waiting ticks with `rem ≤ m·K ≤ rem + K`, store and clock unchanged, the thread dropped
-without having run (its whole body reservation abandoned), and the fallback runs.  With the
-devices at the frame's worst states the waiting costs between `rem·w` and `(rem + K)·w`, so
-T-Await's waiting charge `(rem + K)·w` is attained up to one tick.
+without having run (its whole body reservation abandoned), and the run ends about to run the
+fallback.  If the per-tick charge `bg(D) + bg(A)` equals the frame's typed rate `w` (devices at
+the frame's worst states), the waiting costs between `rem·w` and `(rem + K)·w`, so T-Await's
+waiting charge `(rem + K)·w` (for `rem > 0`) is attained up to one tick.  This part is about the machine
+only: that the devices are at the worst typed states is a hypothesis, not derived from the typing.
 
-**What T-Await's charge over-counts.**  The sum `Q_a + (n + f)·w + Q_fb` is close to attainable:
+**What T-Await's charge over-counts** (an argument; not proved here).  The sum
+`Q_a + (n + f)·w + Q_fb` is close to attainable:
 the schedule that lets `main` wait most of the budget, then runs the thread until just before its
 last step and times out, pays almost all of `Q_a`, the waiting not overlapped by the body, and
 `Q_fb`.  So a `max(join, timeout)` form of the rule would be **unsound** (it misses the partly
@@ -85,8 +91,10 @@ theorem CostModel.maxSpawn_attained (M : CostModel K St R) (k : K) {T : Finset S
 
 /-- **Local attainment of the charge kinds.**  A `state`, `envelope`, `transition` or `spawn`
 item charges a handle at the worst state of its typed set `T`, its device being in `s ∈ T`;
-some state `s' ∈ T` attains that worst case.  Had the device been in `s'` the item would be
-zero, so the typed charge cannot be lowered without excluding a state the typing allows. -/
+some state `s' ∈ T` attains that worst case, so the typed charge cannot be lowered without
+excluding a state the typing allows.  For `state` / `envelope` items the conclusion also gives
+the amount `Kc·(maxBg T − bg s)`, which would be zero had the device been in `s'`; for
+`transition` / `spawn` items only the attainment is stated. -/
 theorem LFact.charge_attained {cl fz Γ Δ Θ b H D Kc ctl} {i : ASlack R}
     (h : LFact P M Ψ Am cl fz Γ Δ Θ b H D Kc ctl i)
     (hk : i.kind = .state ∨ i.kind = .envelope ∨ i.kind = .transition ∨ i.kind = .spawn) :
@@ -109,7 +117,8 @@ theorem LFact.charge_attained {cl fz Γ Δ Θ b H D Kc ctl} {i : ASlack R}
     exact Or.inr ⟨k, T, s, hs, Or.inr (Or.inr (M.maxSpawn_attained k ⟨s, hs⟩))⟩
 
 /-- **A device in a worst state releases no state slack**: a `state` or `envelope` item is
-zero when its device's state has the typed set's worst background. -/
+zero when every state has the worst background of every typed set containing it.  This global
+hypothesis is strong; `charge_zero_of_pinned` covers the common single-state case. -/
 theorem LFact.charge_zero_of_worst {cl fz Γ Δ Θ b H D Kc ctl} {i : ASlack R}
     (h : LFact P M Ψ Am cl fz Γ Δ Θ b H D Kc ctl i)
     (hk : i.kind = .state ∨ i.kind = .envelope)
@@ -285,10 +294,11 @@ theorem Program.await_gap (hM : M.WF) (hP : P.WF) {prog : Program K St R}
 
 Under the schedule that never runs the awaited thread, `main` waits out its whole budget and
 times out: the waiting costs `m` ticks with `rem ≤ m·K ≤ rem + K`, the thread's body never runs
-(its entire reservation is abandoned), and the fallback runs.  So T-Await's waiting part
+(its entire reservation is abandoned), and the run ends about to run the fallback.  So
+T-Await's waiting part
 `(rem + K)·w` is attained up to one tick when the devices are at the frame's worst states.  (A
 schedule that instead runs the thread almost to completion before the timeout also pays most of
-`Q_a`; see the module doc for why the sum is nearly attainable.) -/
+`Q_a`; the module doc argues, without proof, that the sum is nearly attainable.) -/
 
 /-- **Waiting ticks to the end of the budget.**  If `main`'s running activation has a waiting
 frame on a pending thread with budget `rem ≤ m·K`, the machine can wait it out: some `m'` ticks
@@ -371,7 +381,9 @@ theorem Steps.never_schedule [Archimedean R] {Ψd : FCtx K St R} {σ : Mem}
 /-- **The waiting charge is attained up to one tick.**  On the adversarial run, if the devices
 are at the waiting frame's typed worst states (actual rate `bg(D) + bg(A)` equal to the frame's
 typed rate `w`), the waiting costs between `rem·w` and `(rem + K)·w`; T-Await charges
-`waitAllow rem K · w = (rem + K)·w`, so it is attained up to `K·w`, the rounding of Part 2b. -/
+`waitAllow rem K · w = (rem + K)·w` (for `rem > 0`), so it is attained up to `K·w`, the
+rounding of Part 2b.  The theorem itself is the arithmetic; the equality of the rates is not
+proved. -/
 theorem waiting_cost_bounds {m : ℕ} {rem Kc w : R} (h1 : rem ≤ m • Kc) (h2 : m • Kc ≤ rem + Kc) :
     rem * w ≤ (m • Kc) * w ∧ (m • Kc) * w ≤ (rem + Kc) * w :=
   ⟨mul_le_mul_of_nonneg_right h1 zero_le, mul_le_mul_of_nonneg_right h2 zero_le⟩

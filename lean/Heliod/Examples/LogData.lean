@@ -30,7 +30,8 @@ at every step.  `log_data` is typed once, with a summary parametric in the ambie
 
 The sensor lattice is `Off ≤ Idle ≤ Measure` with downgrades `Measure ↪ Off`, `Idle ↪ Off`.
 The cost model `M` is left **arbitrary**, so the theorem pins down the symbolic cost.
-The clock is `1` throughout and costs are in `ℕ`.
+Costs are in `ℕ`.  The summaries are stated for every clock; `expectedCost` is the cost at
+clock `1`.
 -/
 
 namespace LogDataExample

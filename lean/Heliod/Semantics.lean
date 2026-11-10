@@ -38,7 +38,7 @@ frame machine comes with the async extension.  The costs follow the paper's E-ru
   caller's variables; here a call runs its body in a fresh memory `{x ↦ v}` and only the return
   value flows back (`σ[x ↦ r]`).
 * **Expression evaluation is charged** (`K·q_e`), matching the typing rules; the paper's
-  E-rules evaluate expressions for free.  (Choice confirmed with the user.)
+  E-rules evaluate expressions for free.
 * **No runtime typestate checks.**  As in the paper, `transition`/`downgrade` do not check the
   order or the downgrade policy at runtime — preventing invalid transitions is typing's job.
   Runtime failures that typing must rule out are modelled by the absence of a rule: an
