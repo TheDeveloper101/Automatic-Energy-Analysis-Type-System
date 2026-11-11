@@ -1,15 +1,48 @@
 \section{Language \& Type System Design} 
 
-Core calculus:
-    - Introduce syntax
-    - async/await for peripheral operations, explicit transition/downgrade statements
-    - Do not explicitly model rust ownership, but we assume it to be true
-    - Do not support unbounded loops/recursion due to their general lack of use in embedded programming
-Operational Semantics:
-    - Scheduler + stack of execution frames
-    - Model how embedded systems work to the best of our knowledge
-    - Explicit clock for timing, based on logical timesteps though
-    - Semantics are cost-aware, step charges a cost + advances the clock
-Typing:
-    - Important rules are transition/downgrade, function declaration, function call,  async, and await
-    - Explain how each of the rules work, state inference algorithm formally, and joining
+% Core calculus:
+%     - Introduce syntax
+%     - async/await for peripheral operations, explicit transition/downgrade statements
+%     - Do not explicitly model rust ownership, but we assume it to be true
+%     - Do not support unbounded loops/recursion due to their general lack of use in embedded programming
+% Operational Semantics:
+%     - Scheduler + stack of execution frames
+%     - Model how embedded systems work to the best of our knowledge
+%     - Explicit clock for timing, based on logical timesteps though
+%     - Semantics are cost-aware, step charges a cost + advances the clock
+% Typing:
+%     - Important rules are transition/downgrade, function declaration, function call,  async, and await
+%     - Explain how each of the rules work, state inference algorithm formally, and joining
+
+Guided by our examples in Section 3, we present a core calculus to formalize this reasoning. We will first present the sequential fragment of our language, and then extend it to support asynchronous operations. 
+
+\subsection{Sequential Heliod}
+Our syntax for the sequential fragment is shown in ~\autoref{fig: syntax}. We include explicit \texttt{transition} and \texttt{downgrade} statements so that programmers can control when peripherals perform a state transition. To support dynamically inspecting peripheral state and performing actions based on it, we include a form of state ``pattern matching'' via $\texttt{match } p \texttt{ with } st_1 \mid \dots \mid st_n$. 
+
+\begin{figure}
+\small
+\[
+\begin{array}{lcll}
+\text{Peripheral Declarations: }p \bnfdef \ \text{id} \{\langle s_{0},s_{1},\ldots,s_{n}\rangle, <, st, D \}, p \ \vert \ \cdot 
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Declarations: }d & \bnfdef & \text{fn } f(e, p): \tau_1 \rightarrow \tau_2 \ \{c; ret := e\}, d \ \vert \ \cdot
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Commands: }c & \bnfdef & \text{let } x = e & \\ & \bnfalt & \text{let } x = f(e, p) \\ & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2  \\ & \bnfalt & \text{transition}(x, \text{st})  \\ & \bnfalt & \text{downgrade}(x, \text{st}) \\ & \bnfalt & \text{clock}() \\ & \bnfalt & \text{match }p \text{ with } \text{st}_1 \rightarrow c_1 | \dots | \text{ st}_n \rightarrow c_n  \\ & \bnfalt & c_1; c_2 
+\end{array}
+\]
+\[
+\begin{array}{lcll}
+\text{Expressions: }e & \bnfdef & x \ \bnfalt \ v \ \bnfalt \ e_1 \text{ binop } e_2 
+\end{array}
+\]
+\caption{Syntax}
+\label{fig: syntax}
+\end{figure}
+
+To simplify our reasoning about peripheral devices, we assume a rust-like ownership model so aliasing is not a concern. The rules and language however do not explicitly model it. Our implementation targets real programs written in Rust, which must past the Rust typechecker, so any code that is analyzed will uphold this assumption. Importantly, the core language does not support unbounded loops, recursion, or higher-order functions. Unbounded loops are commonly used as a high level construct for managing scheduling, but Heliod is primarily meant for userspace applications where such loops are much less common, especially in safety critical applications. \cite{https://spinroot.com/gerard/pdf/P10.pdf} 
