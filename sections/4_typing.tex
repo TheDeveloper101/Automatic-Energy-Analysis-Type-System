@@ -17,7 +17,7 @@
 Guided by our examples in Section 3, we present a core calculus to formalize this reasoning. We will first present the sequential fragment of our language, and then extend it to support asynchronous operations. 
 
 \subsection{Sequential Heliod}
-Our syntax for the sequential fragment is shown in ~\autoref{fig: syntax}. We include explicit \texttt{transition} and \texttt{downgrade} statements so that programmers can control when peripherals perform a state transition. To support dynamically inspecting peripheral state and performing actions based on it, we include a form of state ``pattern matching'' via $\texttt{match } p \texttt{ with } st_1 \mid \dots \mid st_n$. 
+Our syntax for the sequential fragment is shown in ~\autoref{fig: syntax}. We include explicit \texttt{transition} and \texttt{downgrade} statements so that programmers can control when peripherals perform a state transition. To support dynamically inspecting peripheral state and performing actions based on it, we include a form of state ``pattern matching'' via $\texttt{match } p \texttt{ with } st_1 \mid \dots \mid st_n$. We assume that peripheral declarations are done all at once at the beginning of a program, and the names are globally scoped. Peripheral declarations also contain both a partial order $<$ and a set $D$ of downgrade policies. This is because we model the state machine of state transitions as a lattice with downgrading. Lastly, we also want to account for an embedded board's clock speed during the cost analysis. While this can get quite complicated, we support a simple abstraction through the \texttt{clock } $f$ command. This will set the clock speed to $f$---a non-zero rational number---and therefore allow for costs to be scaled by this new clock speed. 
 
 \begin{figure}
 \small
@@ -33,7 +33,7 @@ Our syntax for the sequential fragment is shown in ~\autoref{fig: syntax}. We in
 \]
 \[
 \begin{array}{lcll}
-\text{Commands: }c & \bnfdef & \text{let } x = e & \\ & \bnfalt & \text{let } x = f(e, p) \\ & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2  \\ & \bnfalt & \text{transition}(x, \text{st})  \\ & \bnfalt & \text{downgrade}(x, \text{st}) \\ & \bnfalt & \text{clock}() \\ & \bnfalt & \text{match }p \text{ with } \text{st}_1 \rightarrow c_1 | \dots | \text{ st}_n \rightarrow c_n  \\ & \bnfalt & c_1; c_2 
+\text{Commands: }c & \bnfdef & \text{let } x = e & \\ & \bnfalt & \text{let } x = f(e, p) \\ & \bnfalt & \text{if } e \text{ then } c_1 \text{ else } c_2  \\ & \bnfalt & \text{transition}(x, \text{st})  \\ & \bnfalt & \text{downgrade}(x, \text{st}) \\ & \bnfalt & \text{clock } f \\ & \bnfalt & \text{match }p \text{ with } \text{st}_1 \rightarrow c_1 | \dots | \text{ st}_n \rightarrow c_n  \\ & \bnfalt & c_1; c_2 
 \end{array}
 \]
 \[
@@ -46,3 +46,66 @@ Our syntax for the sequential fragment is shown in ~\autoref{fig: syntax}. We in
 \end{figure}
 
 To simplify our reasoning about peripheral devices, we assume a rust-like ownership model so aliasing is not a concern. The rules and language however do not explicitly model it. Our implementation targets real programs written in Rust, which must past the Rust typechecker, so any code that is analyzed will uphold this assumption. Importantly, the core language does not support unbounded loops, recursion, or higher-order functions. Unbounded loops are commonly used as a high level construct for managing scheduling, but Heliod is primarily meant for userspace applications where such loops are much less common, especially in safety critical applications. \cite{https://spinroot.com/gerard/pdf/P10.pdf} 
+
+\paragraph{Typing Constructs}
+We define the typing constructs for the sequential fragment of Heliod in \autoref{fig:constructs}. Peripheral devices have the type $\rho$ so we can determine when an operation is being performed on a peripheral. The constraints allow for state inference to be performed. Function types store not just the input and output base types, but also the input and output states---$\Vec{s_1}, \Vec{s_2}$---of the peripheral $p$ that is passed in. We store downgrade policies separately to align with our lattice model of transitions. Additionally, we assume the existence of cost functions $\m{cost}(s_i, s_j)$ which provides the cost of transitioning from state $s_i$ to state $s_j$ and $\m{cost}(s_i)$ which provides the cost of being in state $s_i$. 
+
+\begin{figure}
+\small
+    \centering
+\[
+\begin{array}{llcl}
+\textit{Typing Context} & \tctx & \bnfdef & x \rightarrow \tau, \tctx \bnfalt \cdot
+\\ 
+\textit{Types} & \tau & \bnfdef & \text{int} \bnfalt \text{bool} \bnfalt \text{unit} \bnfalt \rho \bnfalt (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2})  
+\\
+\textit{Downgrade policy} & D & \bnfdef & s' \hookrightarrow s, D \bnfalt \cdot
+\\
+\textit{Peripheral Context} & \pctx & \bnfdef &  p \rightarrow \Vec{s}, \pctx \bnfalt \cdot
+\end{array}
+\]
+\caption{Constructs}
+\label{fig:constructs}
+\end{figure}
+
+\paragraph{Typing Rules} We present selected typing rules, primarily for function declarations and calls, transition/downgrade statements, and branching. In this version of Heliod, we have no state inference and no asynchronous operations yet. 
+\begin{mathpar}
+\inferrule*[left=T-Call]
+{
+\tctx(g) = (\tau_1, \Vec{s_1}) \rightarrow^{q_f(\cdot)} (\tau_2, \Vec{s_2}), f_f \\ \tctx,\pctx \vdash e : \tau_1, q_e \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'_b = \pctx \setminus p \\ q = q_e + q_f[\pctx'_b]
+}
+{
+\tctx,\pctx, f \vdash \text{let } x = g(e, p) : \text{unit} \Rightarrow \tctx[x : \tau_2], \pctx[p: s_2], q, f_f
+}
+
+\inferrule*[left=T-Transition]
+{
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \text{stable}(st) \\ \forall s_i\in \Vec{s}, s_i \leq st \\ q = \max(\m{cost}(s_i, st))(f) + \m{cost}(\pctx \setminus x) + \m{cost}(\cdot)
+}
+{ 
+\tctx,\pctx, f \vdash \text{transition}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], q, f
+}
+
+\inferrule*[left=T-Downgrade]
+{
+\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in x(D) \\ q = \max(\m{cost}(s_i, st))(f) + \m{cost}(\pctx \setminus x) + \m{cost}(\cdot)
+}
+{ 
+\tctx,\pctx, f \vdash \text{downgrade}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], q, f
+}
+
+\inferrule*[left=T-If]
+{
+\tctx,\pctx \vdash e : \text{bool}, q_e \\ \tctx,\pctx \vdash c_1 : \tau \Rightarrow \tctx_1, \pctx_1, q_1, f_1 \\ \tctx,\pctx, f \vdash c_2 : \tau \Rightarrow \tctx_2, \pctx_2, q_2, f_2 \\ \tctx^* = \tctx_1 \cap \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ q = \max(q_1, q_2) + q_e + \m{cost}(\pctx) + \m{cost}(\cdot) \\ f^* = \max(f_1, f_2)
+}
+{
+\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 : \tau \Rightarrow \tctx^*, \pctx^*, q, f^*
+}
+
+\inferrule*[left=T-FunDecl]
+{
+\tctx[x : \tau_1], \pctx[p: \Vec{s_1}], \beta: \text{amb}, f \vdash c: \tau_2 \Rightarrow \tctx', \pctx', f_f, q_1(\cdot) \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, q_2(\cdot) \\ q_f = (q_1 + q_2)(\cdot)
+}
+{ \tctx,\pctx, f \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \rightarrow^{q_f} (\tau_2, \Vec{s_2}), f_f], \pctx
+}
+\end{mathpar}
