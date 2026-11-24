@@ -1,0 +1,13 @@
+name = "heliod"
+defaultTargets = ["Heliod"]
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.35.0"
+
+# `globs` makes every module under `Heliod/` part of the default target,
+# so a bare `lake build` elaborates new files without having to declare them.
+[[lean_lib]]
+name = "Heliod"
+globs = ["Heliod", "Heliod.+"]
