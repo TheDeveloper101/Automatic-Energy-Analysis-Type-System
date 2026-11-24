@@ -48,7 +48,7 @@ Our syntax for the sequential fragment is shown in ~\autoref{fig: syntax}. We in
 To simplify our reasoning about peripheral devices, we assume a rust-like ownership model so aliasing is not a concern. The rules and language however do not explicitly model it. Our implementation targets real programs written in Rust, which must past the Rust typechecker, so any code that is analyzed will uphold this assumption. Importantly, the core language does not support unbounded loops, recursion, or higher-order functions. Unbounded loops are commonly used as a high level construct for managing scheduling, but Heliod is primarily meant for userspace applications where such loops are much less common, especially in safety critical applications. \cite{https://spinroot.com/gerard/pdf/P10.pdf} 
 
 \paragraph{Typing Constructs}
-We define the typing constructs for the sequential fragment of Heliod in \autoref{fig:constructs}. Peripheral devices have the type $\rho$ so we can determine when an operation is being performed on a peripheral. The constraints allow for state inference to be performed. Function types store not just the input and output base types, but also the input and output states---$\Vec{s_1}, \Vec{s_2}$---of the peripheral $p$ that is passed in. We store downgrade policies separately to align with our lattice model of transitions. Additionally, we assume the existence of cost functions $\m{cost}(s_i, s_j)$ which provides the cost of transitioning from state $s_i$ to state $s_j$ and $\m{cost}(s_i)$ which provides the cost of being in state $s_i$. 
+We define the typing constructs for the sequential fragment of Heliod in \autoref{fig:constructs}. Peripheral devices have the type $\rho$ so we can determine when an operation is being performed on a peripheral. Function types store not just the input and output base types, but also the input and output states---$\Vec{s_1}, \Vec{s_2}$---of the peripheral $p$ that is passed in. We store downgrade policies separately to align with our lattice model of transitions. Additionally, we assume the existence of cost functions $\m{cost}(s_i, s_j)$ which provides the cost of transitioning from state $s_i$ to state $s_j$ and $\m{cost}(s_i)$ which provides the cost of being in state $s_i$. 
 
 \begin{figure}
 \small
@@ -68,23 +68,19 @@ We define the typing constructs for the sequential fragment of Heliod in \autore
 \label{fig:constructs}
 \end{figure}
 
-\paragraph{Typing Rules} We present selected typing rules, primarily for function declarations and calls, transition/downgrade statements, and branching. In this version of Heliod, we have no state inference and no asynchronous operations yet. 
+\paragraph{Typing Rules} We present selected typing rules, primarily for function declarations and calls, transition/downgrade statements, and branching in \autoref{fig:sequential-heliod-typing}. In this version of Heliod, we have no state inference and no asynchronous operations yet. 
 \begin{figure}
 \small
 \begin{mathpar}
 \inferrule*[left=T-Call]
 {
-\tctx|_{\mathrm{fn}}(g) =
-  \bigl((\tau_1,\Vec{s_1}) \rightarrow_\rho^{q_g} (\tau_2,\Vec{s_2}), f_g\bigr) \\
-\tctx|_{\mathrm{val}} \vdash e : \tau_1, q_e \\
+\tctx(g) = \bigl((\tau_1,\Vec{s_1}) \rightarrow_\rho^{q_g} (\tau_2,\Vec{s_2}), f_g\bigr) \\
+\tctx \vdash e : \tau_1, q_e \\
 \pctx(p) = \Vec{s} \\
-\text{kind}(p) = \rho \\
+\tctx(p) = \rho \\
 \Vec{s} \subseteq \Vec{s_1} \\
 x \notin \dom(\pctx) \\
-\begin{aligned}
-q ={}& f\bigl(q_e + \m{cost}(\pctx) + \m{cost}(\cdot)\bigr) \\
-     &+ q_g\bigl(f,\m{cost}(\cdot) + \m{cost}(\pctx \setminus p)\bigr)
-\end{aligned}
+q ={} f\bigl(q_e + \m{cost}(\pctx) + \m{cost}(\cdot)\bigr) + q_g\bigl(f,\m{cost}(\cdot) + \m{cost}(\pctx \setminus p)\bigr)
 }
 {
 \tctx,\pctx,f \vdash \text{let } x = g(e,p)
@@ -119,7 +115,7 @@ q = f\bigl(\max_{s_i \in \Vec{s}} \m{cost}(s_i,st)
 
 \inferrule*[left=T-If]
 {
-\tctx|_{\mathrm{val}} \vdash e : \text{bool}, q_e \\
+\tctx \vdash e : \text{bool}, q_e \\
 \tctx,\pctx,f \vdash c_1 \Rightarrow \tctx_1,\pctx_1,q_1,f_1 \\
 \tctx,\pctx,f \vdash c_2 \Rightarrow \tctx_2,\pctx_2,q_2,f_2 \\
 \tctx^* = \tctx_1 \cap \tctx_2 \\
@@ -134,32 +130,59 @@ f^* = \max(f_1,f_2)
 
 \inferrule*[left=T-FunDecl]
 {
-g \notin \dom(\tctx|_{\mathrm{fn}}) \\
-\tctx_f = \tctx|_{\mathrm{fn}}[x:\tau_1] \\
+g \notin \dom(\tctx) \\
+\tctx_f = \tctx[x:\tau_1] \\
 \pctx_f = [p:\Vec{s_1}] \\
-\text{kind}(p) = \rho \\
-\begin{gathered}
+\tctx(p) = \rho \\
 \text{For arbitrary } f \text{ and } \beta:\text{amb}, \text{ with } \m{cost}(\cdot)=\beta: \\
 \tctx_f,\pctx_f,f \vdash c \Rightarrow \tctx',\pctx',q_1(f,\beta),f_g(f) \\
 \pctx'(p) \subseteq \Vec{s_2}
 \qquad \tctx'|_{\mathrm{val}} \vdash e : \tau_2,q_2 \\
 q_g(f,\beta) = q_1(f,\beta) + f_g(f)\bigl(q_2 + \m{cost}(\pctx') + \beta\bigr)
-\end{gathered}
 }
 {
-\begin{gathered}
 \tctx,\pctx \vdash
 \text{fn } g(x,p) : (\tau_1,\Vec{s_1}) \rightarrow_\rho (\tau_2,\Vec{s_2})
-\ \{c; ret := e\} \\
+\ \{c; ret := e\}
 \Rightarrow
 \tctx[g \mapsto \bigl((\tau_1,\Vec{s_1}) \rightarrow_\rho^{q_g}
   (\tau_2,\Vec{s_2}), f_g\bigr)], \pctx
-\end{gathered}
 }
 \end{mathpar}
 \caption{Selected Typing Rules}
 \label{fig:sequential-heliod-typing}
 \end{figure}
-Our typing judgements for commands is $\tctx, \pctx, f \vdash c \Rightarrow \tctx', \pctx', q, f'$ where $q$ is the cost derived from checking $c$. Here, $f$ refers to the current clock speed, which could potentially be updated. 
+A command starts with clock speed $f$. It's typing judgement is $\tctx, \pctx, f \vdash c \Rightarrow \tctx', \pctx', q, f'$ where $q$ is an upper bound on the total cost of $c$, and $f'$ represents an upper bound on the exit clock speed. Since the cost for an embedded system depends on both the power draw and the clock speed, we write $f \cdot q$ to represent the cost of the command scaled by clock speed $f$. We additionally have two more functions used in the rules: \texttt{cost}($\pctx$) sums the cost of each peripheral in scope, and \texttt{cost}($\cdot$) represents the cost of any active outside of the current scope. 
 
-Transition and downgrade statements are treated almost identically. Both require a peripheral and a target state to be passed in. Then, the rule will check that the peripheral is able to perform the transition/downgrade. If it is able to do so, then the peripheral is updated with the new state. Importantly, a peripheral is only able to transition/downgrade to exactly one state. Notably, a peripheral can be in multiple possible states. in the judgement of the state-changing statements. This is due to branching. The key change with branching is that Heliod performs a pointwise union of each peripheral context that arises from checking $c_1$ and $c_2$. For function declarations, we check the function body using the peripheral that was passed in, but we also have a $\beta$ term. This term represents possible ambient peripherals that are also active when the function is called. Since these need to be accounted for as well, there is an additional \texttt{cost}($\cdot$) term to represent those unknown background peripherals. 
+Transition and downgrade statements are treated almost identically. Both require a peripheral and a target state to be passed in. Then, the rule will check that the peripheral is able to perform the transition/downgrade from all possible states it could be in. If so, then the peripheral is updated with the new state. Importantly, a peripheral is only able to transition/downgrade to exactly one state. Notably, a peripheral can be in multiple possible states. in the judgement of the state-changing statements. This is due to branching. The key change with branching is that Heliod performs a pointwise union of each peripheral context that arises from checking $c_1$ and $c_2$. When it comes to function declarations, we have to account for the fact that other peripherals beyond the one passed in as a function parameter can still contribute cost. Each function has a cost summary $q_g(f, \beta)$ and an exit clock summary $f_g(f)$. At a function call, $f$ is the caller’s current clock, and $\beta$ is the unscaled background cost of all peripherals the callee cannot access. The caller checks that the peripheral’s possible states are within the function’s declared input set and uses the declared output set after the call.
+
+\subsection{State Inference}
+
+In order to derive tighter cost bounds across function calls, we utilize state inference. We use the following additional inference constructs: 
+\[
+\begin{array}{lcll}
+     \textit{Constraints} & \Phi & \bnfdef & \varphi, \Phi \bnfalt \cdot  \\
+    \textit{State Constraints} & \varphi & \bnfdef & \alpha = \Vec{st} \bnfalt \alpha \leq st \bnfalt \alpha \hookrightarrow st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
+    \textit{Peripheral State Context} & \pctx & \bnfdef & p : [\alpha], \pctx \bnfalt \cdot
+\end{array}
+\]
+
+When reporting the cost with state inference, we report using a cost expression syntax to reflect that the cost depends on both the peripheral state and the clock speed. The set of possible cost expressions can be found in \autoref{fig:cost_expressions}. Non-concrete costs are produced prior to a state inference solution, and then concretized once a solution has been found.
+
+\begin{figure}
+\[
+\begin{array}{lcll}
+     \text{Cost expression} & \epsilon  \bnfdef & C(f) & \text{(command cost)} \\ & \bnfalt & C(p : st, f) & \text{(state cost)} \\ & \bnfalt & C(p : (st, st'), f) & \text{(transition cost)} \\ & \bnfalt & C(p : (\alpha, st), f) & \text{(non-concrete transition cost)} \\
+     & \bnfalt & C(p : \alpha, f) & \text{(non-concrete cost)} \\ & \bnfalt & \epsilon_1 + \epsilon_2 & \text{(plus)} \\ & \bnfalt & \m{max}(\epsilon_1, \epsilon_2) & \text{(max)} \\ & \bnfalt & C[\alpha \mapsto st] & \text{(concretization)}
+\end{array}
+\]
+\caption{Cost Expression Syntax}
+\label{fig:cost_expressions}
+\end{figure}
+
+Importantly, we update the peripheral state context to be a map between a peripheral, and it's stack of state variables. State variables are similar to type variables in that they represent unknown states, and we collect constraints on each state variable to then solve for. The top of each peripheral’s stack represents its current state. Earlier variables remain available because previously generated cost expressions can still refer to them. For example, if \(\alpha\) is the current state variable for \(p\), then \(\mathsf{transition}(p,st)\) requires a stable target and adds the constraint \(\alpha\le st\). It pushes a fresh variable \(\alpha'\) with \(\alpha'=st\) and records the transition charge \(C(p:(\alpha,st))\). A downgrade instead requires \(\alpha\hookrightarrow st\) and updates the stack in the same way. The target state is known immediately, so subsequent commands can use \(st\) even while the transition charge still depends on \(\alpha\).
+
+\sai{put in branch and call rule description with state inference}
+
+\subsection{Asynchronous Peripheral Support}
+

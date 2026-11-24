@@ -1,1 +1,9 @@
 \section{Evaluation \& Case Studies}
+
+We perform case studies on the NRF 52840dk board. 
+
+- implement heliod for both UART and temperature sensor \\
+- temperature sensor produces costs purely symbolically, UART uses a tick-based model, show that we can get cost derivations for each peripheral API \\
+- combining these into an actual application, show that we get application level bounds \\
+- discuss and show burn bug analysis, current burn bugs are just planted. hopefully show how the optimizations leads to directionally less energy consumed \\
+- show the relative overhead of heliod compared to not using it. hopefully this is small to negative

@@ -658,103 +658,103 @@ Given  $\tctx, \pctx \vdash c : \tau \Rightarrow \tctx', \pctx', q$ and $\tctx, 
 
 % \sai{state inference rules start here}
 
-% The intuition for the state inference rules is that peripherals start in an unconstrained state. Function declarations give us constraints on the input and output states of a peripheral. However those constraints may be more general than the actual state of a peripheral when the function is invoked at a function call. So we want to delay the cost determination of a function until it is actually called. To get more accurate cost bounds, we want to parameterize the cost in terms of the possible peripheral states, and then infer the smallest possible set of peripheral states at the call site that still satisfy the function declaration, and concretize the cost there.
+The intuition for the state inference rules is that peripherals start in an unconstrained state. Function declarations give us constraints on the input and output states of a peripheral. However those constraints may be more general than the actual state of a peripheral when the function is invoked at a function call. So we want to delay the cost determination of a function until it is actually called. To get more accurate cost bounds, we want to parameterize the cost in terms of the possible peripheral states, and then infer the smallest possible set of peripheral states at the call site that still satisfy the function declaration, and concretize the cost there.
 
-% For atomic regions, we only care about satisfying the constraints on the possible peripheral states at the start of each region.
+For atomic regions, we only care about satisfying the constraints on the possible peripheral states at the start of each region.
 
-% We have the following additional inference contexts:
-% \[
-% \begin{array}{lcll}
-%      \textit{Constraints} & \Phi & \bnfdef & \varphi, \Phi \bnfalt \cdot  \\
-%     \textit{State Constraints} & \varphi & \bnfdef & \alpha = \Vec{st} \bnfalt \alpha \leq st \bnfalt \alpha \hookrightarrow st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
-%     \textit{Peripheral State Context} & A & \bnfdef & p : [\alpha], A \bnfalt \cdot
-% \end{array}
-% \]
+We have the following additional inference contexts:
+\[
+\begin{array}{lcll}
+     \textit{Constraints} & \Phi & \bnfdef & \varphi, \Phi \bnfalt \cdot  \\
+    \textit{State Constraints} & \varphi & \bnfdef & \alpha = \Vec{st} \bnfalt \alpha \leq st \bnfalt \alpha \hookrightarrow st \bnfalt \alpha \subseteq \Vec{st} \bnfalt \varphi_1 \wedge \varphi_2 \bnfalt \varphi_1 \vee \varphi_2 \\
+    \textit{Peripheral State Context} & A & \bnfdef & p : [\alpha], A \bnfalt \cdot
+\end{array}
+\]
 
-% We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the current stack of type variables for peripheral $p$. We also define $\m{prefix}(A_1, A_2)$ to return the common prefix of two contexts $A_1, A_2$ if one exists, or $\cdot$ if none exists.
+We define [$\alpha$] to be a stack of type variables, with a lookup $A(p)$ referring to the top of it's stack, $\alpha :: A(p)$ pushing $\alpha$ to the top of the stack and $A[p]$ to refer to the current stack of type variables for peripheral $p$. We also define $\m{prefix}(A_1, A_2)$ to return the common prefix of two contexts $A_1, A_2$ if one exists, or $\cdot$ if none exists.
 
-% We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as follows.
-% \begin{mathpar}
-% \inferrule*[left=Top Level Join]
-% {
-% A_1 = p, A_1' \\ A_2 = p, A_2' \\ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' \\ \Phi_1, \Phi_2, \Phi' \vdash A_1' \uplus A_2' = A'
-% }
-% {
-% \Phi_1, \Phi_2, \cdot \vdash A_1 \uplus A_2 = A', \Phi'
-% }
+We define the join between two peripheral state contexts, $A_1 \uplus A_2$ as follows.
+\begin{mathpar}
+\inferrule*[left=Top Level Join]
+{
+A_1 = p, A_1' \\ A_2 = p, A_2' \\ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' \\ \Phi_1, \Phi_2, \Phi' \vdash A_1' \uplus A_2' = A'
+}
+{
+\Phi_1, \Phi_2, \cdot \vdash A_1 \uplus A_2 = A', \Phi'
+}
 
-% \sai{I am using $\sigma_1, \sigma_2$ to represent intermediate states that are between the prefix and the top of the stack}
+\sai{I am using $\sigma_1, \sigma_2$ to represent intermediate states that are between the prefix and the top of the stack}
 
-% \inferrule*[left=Stack Join] 
-% { \pi = \m{prefix}(A_1[p], A_2[p]) \\ A_1[p] = \alpha_1 :: \sigma_1 :: \pi \\ A_2[p] = \alpha_2 :: \sigma_2 :: \pi \\ \alpha' \text{ fresh} \\ \Phi' = (\Phi_1 \land \Phi_2) \land \{ \alpha' = \alpha_1 \lor \alpha_2 \} \\ A'[p] = \alpha' :: \sigma_1 :: \sigma_2 :: \pi
-% } 
-% { \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' 
-% }
+\inferrule*[left=Stack Join] 
+{ \pi = \m{prefix}(A_1[p], A_2[p]) \\ A_1[p] = \alpha_1 :: \sigma_1 :: \pi \\ A_2[p] = \alpha_2 :: \sigma_2 :: \pi \\ \alpha' \text{ fresh} \\ \Phi' = (\Phi_1 \land \Phi_2) \land \{ \alpha' = \alpha_1 \lor \alpha_2 \} \\ A'[p] = \alpha' :: \sigma_1 :: \sigma_2 :: \pi
+} 
+{ \Phi_1, \Phi_2 \vdash A_1[p] \uplus A_2[p] = A'[p], \Phi' 
+}
 
-% \inferrule*[left=Empty]
-% {  }
-% {
-% \cdot \uplus \cdot = \cdot
-% }
+\inferrule*[left=Empty]
+{  }
+{
+\cdot \uplus \cdot = \cdot
+}
 
-% \inferrule*[left=One Side Empty]
-% { }
-% {A_1 \uplus \cdot = A_1}
+\inferrule*[left=One Side Empty]
+{ }
+{A_1 \uplus \cdot = A_1}
 
-% \inferrule*[left=Symmetry]
-% { }
-% {A_1 \uplus A_2 = A_2 \uplus A_1}
-% \end{mathpar}
+\inferrule*[left=Symmetry]
+{ }
+{A_1 \uplus A_2 = A_2 \uplus A_1}
+\end{mathpar}
 
-% We also define $\m{solve}(\varphi, \varepsilon)$ to a function that takes in a set of constraints $\varphi$ and the current partial solution $\varepsilon :: = \alpha \rightarrow \Vec{st}, \varepsilon$. It then returns $\varepsilon'$ which is the updated solution with the new constraints form solving $\varphi$. We have a top level function $\m{sol}(\Phi)$ which calls $\m{solve}$ on each $\varphi \in \Phi$. The solution satisfies the following constraints: \sai{i dont think these rules are exactly right but im trying to formalize my intuition}
-% \begin{mathpar}
+We also define $\m{solve}(\varphi, \varepsilon)$ to a function that takes in a set of constraints $\varphi$ and the current partial solution $\varepsilon :: = \alpha \rightarrow \Vec{st}, \varepsilon$. It then returns $\varepsilon'$ which is the updated solution with the new constraints form solving $\varphi$. We have a top level function $\m{sol}(\Phi)$ which calls $\m{solve}$ on each $\varphi \in \Phi$. The solution satisfies the following constraints: \sai{i dont think these rules are exactly right but im trying to formalize my intuition}
+\begin{mathpar}
 
-% \inferrule*[left=Solve-Empty]
-% {}
-% {\cdot \vdash \alpha \Downarrow \top}
+\inferrule*[left=Solve-Empty]
+{}
+{\cdot \vdash \alpha \Downarrow \top}
 
-% \inferrule*[left=Solve-Eq]
-% {}
-% {\alpha = \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
+\inferrule*[left=Solve-Eq]
+{}
+{\alpha = \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
 
-% \inferrule*[left=Solve-Leq]
-% {}
-% {\alpha \leq st \vdash \alpha \Downarrow \{\, s \mid s \leq st \,\}}
+\inferrule*[left=Solve-Leq]
+{}
+{\alpha \leq st \vdash \alpha \Downarrow \{\, s \mid s \leq st \,\}}
 
-% \inferrule*[left=Solve-Subset]
-% {}
-% {\alpha \subseteq \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
-
-
-
-% \inferrule*[left=Solve-And]
-% {
-% \varphi_1 \vdash \alpha \Downarrow S_1 \\
-% \varphi_2 \vdash \alpha \Downarrow S_2
-% }
-% {
-% \varphi_1 \wedge \varphi_2 \vdash \alpha \Downarrow S_1 \cap S_2
-% }
-
-% \inferrule*[left=Solve-Or]
-% {
-% \varphi_1 \vdash \alpha \Downarrow S_1 \\
-% \varphi_2 \vdash \alpha \Downarrow S_2
-% }
-% {
-% \varphi_1 \vee \varphi_2 \vdash \alpha \Downarrow S_1 \cup S_2
-% }
+\inferrule*[left=Solve-Subset]
+{}
+{\alpha \subseteq \Vec{s} \vdash \alpha \Downarrow \Vec{s}}
 
 
-% \inferrule*[left=Solve]
-% {
-% \varphi, \Phi' = \Phi \\ \varepsilon = \m{solve}(\varphi, \cdot) \\ \Phi', \varepsilon \vdash \m{sol}(\Phi)
-% }
-% {
-% \Phi, \cdot \vdash \m{sol}(\Phi) \Downarrow \epsilon
-% }
 
-% \end{mathpar}
+\inferrule*[left=Solve-And]
+{
+\varphi_1 \vdash \alpha \Downarrow S_1 \\
+\varphi_2 \vdash \alpha \Downarrow S_2
+}
+{
+\varphi_1 \wedge \varphi_2 \vdash \alpha \Downarrow S_1 \cap S_2
+}
+
+\inferrule*[left=Solve-Or]
+{
+\varphi_1 \vdash \alpha \Downarrow S_1 \\
+\varphi_2 \vdash \alpha \Downarrow S_2
+}
+{
+\varphi_1 \vee \varphi_2 \vdash \alpha \Downarrow S_1 \cup S_2
+}
+
+
+\inferrule*[left=Solve]
+{
+\varphi, \Phi' = \Phi \\ \varepsilon = \m{solve}(\varphi, \cdot) \\ \Phi', \varepsilon \vdash \m{sol}(\Phi)
+}
+{
+\Phi, \cdot \vdash \m{sol}(\Phi) \Downarrow \epsilon
+}
+
+\end{mathpar}
 
 % Command state inference rules are of the form $$
 % \begin{aligned}

@@ -1,3 +1,57 @@
 \section{Correctness}
+\subsection{Operational Semantics and Assumptions}
+\subsection{Type Safety}
+\subsection{Cost Soundness}
+\subsection{Cost Accounting and Bound Precision}
 
-Theorem statements:
+
+\begin{thm}[Type Soundness]
+\label{thm:type-soundness}
+Suppose $c$ checks under valid function signatures and
+\[
+\tctx, \pctx, f \vdash c
+\Rightarrow \tctx', \pctx', q_c(f,\beta), f_c(f).
+\]
+If the initial store and peripheral state agree with $\tctx$ and
+$\pctx$, then $c$ has a terminating evaluation. Every evaluation from
+these initial conditions ends in a store and peripheral state that
+agree with $\tctx'$ and $\pctx'$. Its actual cost $q$ and exit clock
+$f'$ satisfy
+\[
+q \leq q_c(f,\beta)
+\qquad
+f' \leq f_c(f).
+\]
+\end{thm}
+
+\begin{thm}[Inference Soundness]
+\label{thm:inference-soundness}
+Suppose state inference derives output contexts $\tctx', \pctx'$
+and summaries $q_c, f_c$ for $c$ under input contexts $\tctx, \pctx$.
+If $c$ evaluates at clock $f$ with ambient background cost $\beta$
+from a store and peripheral state that agree with $\tctx$ and $\pctx$,
+then the final store and peripheral state agree with $\tctx'$ and
+$\pctx'$. Its actual cost $q$ and exit clock $f'$ satisfy
+\[
+q \leq q_c(f,\beta)
+\qquad
+f' \leq f_c(f).
+\]
+\end{thm}
+
+\begin{thm}[Slack Decomposition]
+\label{thm:slack-decomposition}
+Suppose a sequential program checks with cost summary $q_{\m{main}}$
+and evaluates from its initial configuration at clock $f_0$ with
+actual cost $q$. There is a finite list $L$ of slack items for the
+execution. Each item $i \in L$ records a typed charge
+$q_i^{\m{typed}}$ and an actual charge $q_i^{\m{actual}}$, with
+$q_i^{\m{actual}} \leq q_i^{\m{typed}}$. Since the program starts with
+zero ambient background cost,
+\[
+q_{\m{main}}(f_0,0)
+=
+q + \sum_{i \in L}
+\bigl(q_i^{\m{typed}} - q_i^{\m{actual}}\bigr).
+\]
+\end{thm}
