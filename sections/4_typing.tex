@@ -69,6 +69,8 @@ We define the typing constructs for the sequential fragment of Heliod in \autore
 \end{figure}
 
 \paragraph{Typing Rules} We present selected typing rules, primarily for function declarations and calls, transition/downgrade statements, and branching. In this version of Heliod, we have no state inference and no asynchronous operations yet. 
+\begin{figure}
+\small
 \begin{mathpar}
 \inferrule*[left=T-Call]
 {
@@ -109,7 +111,9 @@ We define the typing constructs for the sequential fragment of Heliod in \autore
 { \tctx,\pctx, f \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \rightarrow^{q_f} (\tau_2, \Vec{s_2}), f_f], \pctx
 }
 \end{mathpar}
-
+\caption{Selected Typing Rules}
+\label{fig:sequential-heliod-typing}
+\end{figure}
 Our typing judgements for commands is $\tctx, \pctx, f \vdash c \Rightarrow \tctx', \pctx', q, f'$ where $q$ is the cost derived from checking $c$. Here, $f$ refers to the current clock speed, which could potentially be updated. 
 
-Transition and downgrade statements are treated almost identically. Both require a peripheral and a target state to be passed in. Then, the rule will check that the peripheral is able to perform the transition/downgrade. If it is able to do so, then the peripheral is updated with the new state. Importantly, a peripheral is only able to transition/downgrade to exactly one state. 
+Transition and downgrade statements are treated almost identically. Both require a peripheral and a target state to be passed in. Then, the rule will check that the peripheral is able to perform the transition/downgrade. If it is able to do so, then the peripheral is updated with the new state. Importantly, a peripheral is only able to transition/downgrade to exactly one state. Notably, a peripheral can be in multiple possible states. in the judgement of the state-changing statements. This is due to branching. The key change with branching is that Heliod performs a pointwise union of each peripheral context that arises from checking $c_1$ and $c_2$. For function declarations, we check the function body using the peripheral that was passed in, but we also have a $\beta$ term. This term represents possible ambient peripherals that are also active when the function is called. Since these need to be accounted for as well, there is an additional \texttt{cost}($\cdot$) term to represent those unknown background peripherals. 
