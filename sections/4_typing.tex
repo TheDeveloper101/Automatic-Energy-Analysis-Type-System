@@ -74,41 +74,87 @@ We define the typing constructs for the sequential fragment of Heliod in \autore
 \begin{mathpar}
 \inferrule*[left=T-Call]
 {
-\tctx(g) = (\tau_1, \Vec{s_1}) \rightarrow^{q_f(\cdot)} (\tau_2, \Vec{s_2}), f_f \\ \tctx,\pctx \vdash e : \tau_1, q_e \\ \pctx(p) = \Vec{s} \\ \Vec{s} \subseteq \Vec{s_1} \\ \pctx'_b = \pctx \setminus p \\ q = q_e + q_f[\pctx'_b]
+\tctx|_{\mathrm{fn}}(g) =
+  \bigl((\tau_1,\Vec{s_1}) \rightarrow_\rho^{q_g} (\tau_2,\Vec{s_2}), f_g\bigr) \\
+\tctx|_{\mathrm{val}} \vdash e : \tau_1, q_e \\
+\pctx(p) = \Vec{s} \\
+\text{kind}(p) = \rho \\
+\Vec{s} \subseteq \Vec{s_1} \\
+x \notin \dom(\pctx) \\
+\begin{aligned}
+q ={}& f\bigl(q_e + \m{cost}(\pctx) + \m{cost}(\cdot)\bigr) \\
+     &+ q_g\bigl(f,\m{cost}(\cdot) + \m{cost}(\pctx \setminus p)\bigr)
+\end{aligned}
 }
 {
-\tctx,\pctx, f \vdash \text{let } x = g(e, p) : \text{unit} \Rightarrow \tctx[x : \tau_2], \pctx[p: s_2], q, f_f
+\tctx,\pctx,f \vdash \text{let } x = g(e,p)
+\Rightarrow \tctx[x:\tau_2], \pctx[p:\Vec{s_2}], q, f_g(f)
 }
 
 \inferrule*[left=T-Transition]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \leq st \\ q = \max(\m{cost}(s_i, st))(f) + \m{cost}(\pctx \setminus x) + \m{cost}(\cdot)
+\pctx(x) = \Vec{s} \\
+\text{stable}(st) \\
+\forall s_i \in \Vec{s},\ s_i \leq st \\
+q = f\bigl(\max_{s_i \in \Vec{s}} \m{cost}(s_i,st)
+  + \m{cost}(\pctx \setminus x) + \m{cost}(\cdot)\bigr)
 }
-{ 
-\tctx,\pctx, f \vdash \text{transition}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], q, f
+{
+\tctx,\pctx,f \vdash \text{transition}(x,st)
+\Rightarrow \tctx, \pctx[x:\{st\}], q, f
 }
 
 \inferrule*[left=T-Downgrade]
 {
-\tctx,\pctx \vdash x : \rho \\ \pctx(x) = \Vec{s} \\ \forall s_i\in \Vec{s}, s_i \hookrightarrow st \in x(D) \\ q = \max(\m{cost}(s_i, st))(f) + \m{cost}(\pctx \setminus x) + \m{cost}(\cdot)
+\pctx(x) = \Vec{s} \\
+\text{stable}(st) \\
+\forall s_i \in \Vec{s},\ s_i \hookrightarrow st \in x(D) \\
+q = f\bigl(\max_{s_i \in \Vec{s}} \m{cost}(s_i,st)
+  + \m{cost}(\pctx \setminus x) + \m{cost}(\cdot)\bigr)
 }
-{ 
-\tctx,\pctx, f \vdash \text{downgrade}(x, st) : \text{unit} \Rightarrow \tctx, \pctx[x : st], q, f
+{
+\tctx,\pctx,f \vdash \text{downgrade}(x,st)
+\Rightarrow \tctx, \pctx[x:\{st\}], q, f
 }
 
 \inferrule*[left=T-If]
 {
-\tctx,\pctx \vdash e : \text{bool}, q_e \\ \tctx,\pctx \vdash c_1 : \tau \Rightarrow \tctx_1, \pctx_1, q_1, f_1 \\ \tctx,\pctx, f \vdash c_2 : \tau \Rightarrow \tctx_2, \pctx_2, q_2, f_2 \\ \tctx^* = \tctx_1 \cap \tctx_2 \\ \pctx^* = \pctx_1 \cup \pctx_2 \\ q = \max(q_1, q_2) + q_e + \m{cost}(\pctx) + \m{cost}(\cdot) \\ f^* = \max(f_1, f_2)
+\tctx|_{\mathrm{val}} \vdash e : \text{bool}, q_e \\
+\tctx,\pctx,f \vdash c_1 \Rightarrow \tctx_1,\pctx_1,q_1,f_1 \\
+\tctx,\pctx,f \vdash c_2 \Rightarrow \tctx_2,\pctx_2,q_2,f_2 \\
+\tctx^* = \tctx_1 \cap \tctx_2 \\
+\pctx^* = \pctx_1 \cup \pctx_2 \\
+q = \max(q_1,q_2) + f\bigl(q_e + \m{cost}(\pctx) + \m{cost}(\cdot)\bigr) \\
+f^* = \max(f_1,f_2)
 }
 {
-\tctx, \pctx \vdash \text{if } e \text{ then } c_1 \text{ else } c_2 : \tau \Rightarrow \tctx^*, \pctx^*, q, f^*
+\tctx,\pctx,f \vdash \text{if } e \text{ then } c_1 \text{ else } c_2
+\Rightarrow \tctx^*,\pctx^*,q,f^*
 }
 
 \inferrule*[left=T-FunDecl]
 {
-\tctx[x : \tau_1], \pctx[p: \Vec{s_1}], \beta: \text{amb}, f \vdash c: \tau_2 \Rightarrow \tctx', \pctx', f_f, q_1(\cdot) \\ \pctx'(p) = \Vec{s_2} \\ \tctx', \pctx' \vdash e : \tau_2, q_2(\cdot) \\ q_f = (q_1 + q_2)(\cdot)
+g \notin \dom(\tctx|_{\mathrm{fn}}) \\
+\tctx_f = \tctx|_{\mathrm{fn}}[x:\tau_1] \\
+\pctx_f = [p:\Vec{s_1}] \\
+\text{kind}(p) = \rho \\
+\begin{gathered}
+\text{For arbitrary } f \text{ and } \beta:\text{amb}, \text{ with } \m{cost}(\cdot)=\beta: \\
+\tctx_f,\pctx_f,f \vdash c \Rightarrow \tctx',\pctx',q_1(f,\beta),f_g(f) \\
+\pctx'(p) \subseteq \Vec{s_2}
+\qquad \tctx'|_{\mathrm{val}} \vdash e : \tau_2,q_2 \\
+q_g(f,\beta) = q_1(f,\beta) + f_g(f)\bigl(q_2 + \m{cost}(\pctx') + \beta\bigr)
+\end{gathered}
 }
-{ \tctx,\pctx, f \vdash \text{fn } f(x, p) : (\tau_1, \Vec{s_1}) \rightarrow (\tau_2, \Vec{s_2}) \  \{c; ret := e\} \Rightarrow \tctx[f \mapsto (\tau_1, \Vec{s_1}) \rightarrow^{q_f} (\tau_2, \Vec{s_2}), f_f], \pctx
+{
+\begin{gathered}
+\tctx,\pctx \vdash
+\text{fn } g(x,p) : (\tau_1,\Vec{s_1}) \rightarrow_\rho (\tau_2,\Vec{s_2})
+\ \{c; ret := e\} \\
+\Rightarrow
+\tctx[g \mapsto \bigl((\tau_1,\Vec{s_1}) \rightarrow_\rho^{q_g}
+  (\tau_2,\Vec{s_2}), f_g\bigr)], \pctx
+\end{gathered}
 }
 \end{mathpar}
 \caption{Selected Typing Rules}
